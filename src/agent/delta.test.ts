@@ -384,6 +384,106 @@ describe('Delta Evaluator', () => {
       expect(delta?.explanation).toContain('Insufficient specific evidence');
     });
 
+    it('should return INCONCLUSIVE_NO_EVIDENCE when changelog result was published after the requested comparison interval', () => {
+      const searchResults: SearchResultItem[] = [
+        {
+          id: 'cl-future-date',
+          title: 'Supabase Changelog - Late November 2026',
+          url: 'https://supabase.com/changelog/late-nov-2026',
+          snippet: 'Shipped new features in late November after comparison window.',
+          publishedDate: '2026-11-25', // After Nov 11 referenceTimestamp
+          category: 'changelog',
+          retrievedAt: new Date().toISOString(),
+          isMock: false,
+        },
+      ];
+
+      const citations: Citation[] = [
+        {
+          id: 1,
+          title: 'Supabase Changelog - Late November 2026',
+          url: 'https://supabase.com/changelog/late-nov-2026',
+          snippet: 'Shipped new features in late November after comparison window.',
+          publishedDate: '2026-11-25',
+          isMock: false,
+        },
+      ];
+
+      const delta = evaluateDelta({
+        userQuery: 'What did I ask on 3 November? Has anything shipped since?',
+        historicalMessages,
+        searchResults,
+        citations,
+        temporal: nov3Temporal,
+      });
+
+      expect(delta).toBeDefined();
+      expect(delta?.status).toBe('INCONCLUSIVE_NO_EVIDENCE');
+      expect(delta?.explanation).toContain('Insufficient specific evidence');
+    });
+
+    it('should return INCONCLUSIVE_NO_EVIDENCE when comparison-window boundaries are invalid or malformed', () => {
+      const malformedHistoryMessages: Message[] = [
+        {
+          id: 'bad-h-1',
+          sessionId: 'sess-bad',
+          role: 'user',
+          content: 'What did I ask?',
+          createdAt: 'unparseable-date',
+        },
+        {
+          id: 'bad-h-2',
+          sessionId: 'sess-bad',
+          role: 'assistant',
+          content: 'Supabase details here.',
+          createdAt: 'unparseable-date',
+        },
+      ];
+
+      const searchResults: SearchResultItem[] = [
+        {
+          id: 'cl-valid-date-bad-window',
+          title: 'Supabase Changelog',
+          url: 'https://supabase.com/changelog/release',
+          snippet: 'Shipped new release features.',
+          publishedDate: '2026-11-06',
+          category: 'changelog',
+          retrievedAt: new Date().toISOString(),
+          isMock: false,
+        },
+      ];
+
+      const citations: Citation[] = [
+        {
+          id: 1,
+          title: 'Supabase Changelog',
+          url: 'https://supabase.com/changelog/release',
+          snippet: 'Shipped new release features.',
+          publishedDate: '2026-11-06',
+          isMock: false,
+        },
+      ];
+
+      const delta = evaluateDelta({
+        userQuery: 'Has anything shipped since?',
+        historicalMessages: malformedHistoryMessages,
+        searchResults,
+        citations,
+        temporal: {
+          expression: 'invalid window',
+          startDate: 'not-a-date',
+          endDate: 'not-a-date',
+          isRange: false,
+          confidence: 0.5,
+          timezone: 'UTC',
+        },
+      });
+
+      expect(delta).toBeDefined();
+      expect(delta?.status).toBe('INCONCLUSIVE_NO_EVIDENCE');
+      expect(delta?.explanation).toContain('Insufficient specific evidence');
+    });
+
     it('should return VERIFIED_CHANGE when multiple results exist and one independently establishes a valid in-range change', () => {
       const searchResults: SearchResultItem[] = [
         {

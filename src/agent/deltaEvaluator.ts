@@ -85,6 +85,16 @@ export function evaluateDelta(input: DeltaEvaluationInput): DeltaComparison | un
     const historyStartMs = temporal?.startDate
       ? Date.parse(temporal.startDate)
       : Date.parse(historicalAssistantMsg.createdAt);
+    const historyDayStartMs = !isNaN(historyStartMs)
+      ? new Date(historyStartMs).setUTCHours(0, 0, 0, 0)
+      : NaN;
+
+    // Determine comparison interval end boundary
+    const intervalEndRaw = temporal?.referenceTimestamp || temporal?.endDate;
+    const intervalEndMs = intervalEndRaw ? Date.parse(intervalEndRaw) : Date.now();
+    const intervalEndDayMaxMs = !isNaN(intervalEndMs)
+      ? new Date(intervalEndMs).setUTCHours(23, 59, 59, 999)
+      : NaN;
 
     // Helper to verify if a search result provides valid, temporally relevant changelog evidence
     const isTemporallyRelevantChangelog = (r: SearchResultItem): boolean => {
@@ -97,10 +107,14 @@ export function evaluateDelta(input: DeltaEvaluationInput): DeltaComparison | un
       const pubMs = Date.parse(r.publishedDate);
       if (isNaN(pubMs)) return false;
 
-      // Must be on or after the historical baseline calendar day
-      if (isNaN(historyStartMs)) return false;
-      const historyDayStartMs = new Date(historyStartMs).setUTCHours(0, 0, 0, 0);
-      return pubMs >= historyDayStartMs;
+      // Handle invalid comparison-window boundaries conservatively
+      if (isNaN(historyDayStartMs)) return false;
+
+      // Must fall strictly within the requested comparison interval [historyDayStartMs, intervalEndDayMaxMs]
+      if (pubMs < historyDayStartMs) return false;
+      if (!isNaN(intervalEndDayMaxMs) && pubMs > intervalEndDayMaxMs) return false;
+
+      return true;
     };
 
     // Check for explicit updates / changelogs supported by valid dated evidence
@@ -125,9 +139,12 @@ export function evaluateDelta(input: DeltaEvaluationInput): DeltaComparison | un
         // Enforce dated evidence requirement covering the requested interval
         // A current price on an official website does NOT, by itself, prove the price remained unchanged throughout the interval
         const hasIntervalSpanningEvidence = searchResults.some(r => {
-          if (!r.publishedDate) return false;
+          if (!r.publishedDate || typeof r.publishedDate !== 'string') return false;
           const pubMs = Date.parse(r.publishedDate);
-          return !isNaN(pubMs) && !isNaN(historyStartMs) && pubMs >= historyStartMs;
+          if (isNaN(pubMs) || isNaN(historyDayStartMs)) return false;
+          if (pubMs < historyDayStartMs) return false;
+          if (!isNaN(intervalEndDayMaxMs) && pubMs > intervalEndDayMaxMs) return false;
+          return true;
         });
 
         if (hasDatedChangelogEvidence) {
