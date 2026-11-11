@@ -17,7 +17,7 @@ const host = process.env.HOST || 'localhost';
 const dbPath = process.env.DATABASE_PATH || './data/minimi.db';
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '100kb' }));
 
 // Serve static frontend assets from public/
 const publicDir = path.resolve(__dirname, '../public');
@@ -25,6 +25,8 @@ app.use(express.static(publicDir));
 
 let memoryStore: MemoryStore;
 let chatAgent: ChatAgent;
+
+const SESSION_ID_REGEX = /^[a-zA-Z0-9_-]{1,64}$/;
 
 export async function setupApp(customMemory?: MemoryStore, customAgent?: ChatAgent): Promise<express.Express> {
   if (customMemory && customAgent) {
@@ -47,18 +49,41 @@ export async function setupApp(customMemory?: MemoryStore, customAgent?: ChatAge
 
 // Health check endpoint
 app.get('/api/health', (_req, res) => {
-  res.json({
-    status: 'ok',
+  const isReady = Boolean(memoryStore && chatAgent);
+  res.status(isReady ? 200 : 503).json({
+    status: isReady ? 'ok' : 'initializing',
     service: 'minimi-chat-agent',
     timestamp: new Date().toISOString(),
     timezone: process.env.TIMEZONE || 'Asia/Kolkata',
   });
 });
 
+// Guard middleware to ensure services are ready before processing requests
+app.use('/api', (req, res, next) => {
+  if (req.path === '/health') return next();
+  if (!memoryStore || !chatAgent) {
+    res.status(503).json({ error: 'Service is initializing. Please try again in a moment.' });
+    return;
+  }
+  next();
+});
+
 // Seed challenge demo history endpoint
 app.post('/api/seed', (req, res) => {
   try {
-    const sessionId = (req.body?.sessionId as string) || 'default-session';
+    const rawSessionId = req.body?.sessionId;
+    const sessionId = typeof rawSessionId === 'string' && rawSessionId.trim() !== ''
+      ? rawSessionId.trim()
+      : 'default-session';
+
+    if (!SESSION_ID_REGEX.test(sessionId)) {
+      res.status(400).json({
+        success: false,
+        error: 'Invalid sessionId. Must be 1-64 alphanumeric characters, dashes, or underscores.',
+      });
+      return;
+    }
+
     memoryStore.seedChallengeDemoData(sessionId, new Date());
     res.json({
       success: true,
@@ -76,12 +101,26 @@ app.post('/api/chat', async (req, res) => {
   try {
     const { sessionId = 'default-session', message, currentDate } = req.body || {};
 
+    if (typeof sessionId !== 'string' || !SESSION_ID_REGEX.test(sessionId)) {
+      res.status(400).json({
+        error: 'Invalid sessionId. Must be 1-64 alphanumeric characters, dashes, or underscores.',
+      });
+      return;
+    }
+
     if (!message || typeof message !== 'string' || message.trim() === '') {
       res.status(400).json({ error: 'Message content is required.' });
       return;
     }
 
-    const anchorDate = currentDate ? new Date(currentDate) : new Date();
+    let anchorDate = new Date();
+    if (currentDate) {
+      const parsedDate = new Date(currentDate);
+      if (!isNaN(parsedDate.getTime())) {
+        anchorDate = parsedDate;
+      }
+    }
+
     const responsePayload = await chatAgent.handleUserMessage(sessionId, message.trim(), anchorDate);
 
     res.json(responsePayload);
@@ -96,6 +135,13 @@ app.post('/api/chat', async (req, res) => {
 app.get('/api/history/:sessionId', (req, res) => {
   try {
     const { sessionId } = req.params;
+    if (!sessionId || !SESSION_ID_REGEX.test(sessionId)) {
+      res.status(400).json({
+        error: 'Invalid sessionId. Must be 1-64 alphanumeric characters, dashes, or underscores.',
+      });
+      return;
+    }
+
     const messages = memoryStore.getRecentMessages(sessionId, 50);
     res.json({ sessionId, messages });
   } catch (err: unknown) {

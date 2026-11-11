@@ -20,7 +20,19 @@ export class MemoryStore {
   }
 
   async initialize(): Promise<void> {
-    const wasmPath = path.resolve(__dirname, '../../node_modules/sql.js/dist');
+    const candidateDirs = [
+      path.resolve(__dirname, '../../node_modules/sql.js/dist'),
+      path.resolve(__dirname, '../node_modules/sql.js/dist'),
+      path.resolve(process.cwd(), 'node_modules/sql.js/dist'),
+    ];
+    let wasmPath = candidateDirs[0];
+    for (const dir of candidateDirs) {
+      if (fs.existsSync(path.join(dir, 'sql-wasm.wasm'))) {
+        wasmPath = dir;
+        break;
+      }
+    }
+
     const SQL = await initSqlJs({
       locateFile: (file: string) => path.join(wasmPath, file),
     });

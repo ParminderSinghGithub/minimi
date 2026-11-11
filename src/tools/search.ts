@@ -27,6 +27,10 @@ export class TavilySearchProvider implements WebSearchProvider {
   }
 
   async search(query: string, options?: SearchOptions): Promise<SearchResultItem[]> {
+    if (!query || query.trim() === '') {
+      return [];
+    }
+
     if (!this.apiKey) {
       throw new Error('TAVILY_API_KEY is not configured');
     }
@@ -109,6 +113,10 @@ export class MockSearchProvider implements WebSearchProvider {
   }
 
   async search(query: string, options?: SearchOptions): Promise<SearchResultItem[]> {
+    if (!query || query.trim() === '') {
+      return [];
+    }
+
     if (this.failNextSearch) {
       this.failNextSearch = false;
       throw new Error(`Simulated search failure for query: "${query}"`);
@@ -238,6 +246,19 @@ export function createSearchProvider(
 }
 
 /**
+ * Normalizes URL strings by resolving hostnames and stripping trailing slashes.
+ */
+function normalizeUrl(rawUrl: string): string {
+  try {
+    const parsed = new URL(rawUrl);
+    const pathname = parsed.pathname.length > 1 ? parsed.pathname.replace(/\/+$/, '') : parsed.pathname;
+    return `${parsed.protocol}//${parsed.host.toLowerCase()}${pathname}${parsed.search}`;
+  } catch {
+    return rawUrl.trim().replace(/\/+$/, '');
+  }
+}
+
+/**
  * Transforms search results into ordered, deduplicated citations.
  * Clearly marks simulated/mock citations so reviewers know when offline mode is active.
  */
@@ -246,8 +267,10 @@ export function buildCitations(results: SearchResultItem[]): Citation[] {
   const citations: Citation[] = [];
 
   for (const item of results) {
-    if (!item.url || seenUrls.has(item.url)) continue;
-    seenUrls.add(item.url);
+    if (!item.url) continue;
+    const normalized = normalizeUrl(item.url);
+    if (seenUrls.has(normalized)) continue;
+    seenUrls.add(normalized);
 
     const isMock = Boolean(item.isMock);
     const displayTitle = isMock && !item.title.startsWith('[Demo Simulation]')

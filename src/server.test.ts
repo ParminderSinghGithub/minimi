@@ -94,6 +94,44 @@ describe('Server Endpoints Integration (Pure In-Memory Dispatch)', () => {
     expect(res.body.error).toContain('required');
   });
 
+  it('POST /api/chat should reject invalid sessionId format', async () => {
+    const res = await executeRequest(app, 'POST', '/api/chat', {
+      sessionId: 'bad session/id!@#',
+      message: 'Hello',
+    });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain('Invalid sessionId');
+  });
+
+  it('POST /api/seed should reject invalid sessionId format', async () => {
+    const res = await executeRequest(app, 'POST', '/api/seed', {
+      sessionId: 'bad..session/injection',
+    });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain('Invalid sessionId');
+  });
+
+  it('GET /api/history/:sessionId should reject invalid sessionId format', async () => {
+    const res = await executeRequest(app, 'GET', '/api/history/bad session?test=1');
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain('Invalid sessionId');
+  });
+
+  it('POST /api/chat should handle invalid currentDate by falling back safely', async () => {
+    const res = await executeRequest(app, 'POST', '/api/chat', {
+      sessionId: 'server-test-session',
+      message: 'What is the pricing for Supabase?',
+      currentDate: 'not-a-valid-date-string',
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.body.content).toBeDefined();
+    expect(res.body.temporalContext.anchorDate).toBeDefined();
+  });
+
   it('POST /api/chat should answer queries and return citations and delta', async () => {
     const res = await executeRequest(app, 'POST', '/api/chat', {
       sessionId: 'server-test-session',

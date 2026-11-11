@@ -199,41 +199,54 @@ STRICT RULES:
 
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${this.geminiModel}:generateContent?key=${this.geminiApiKey}`;
 
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [
-          {
-            role: 'user',
-            parts: [
-              {
-                text: `${systemPrompt}\n\nContext Data:\n${JSON.stringify(userPayload, null, 2)}\n\nPlease provide a clear, factual, and cited response to the user's question.`,
-              },
-            ],
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
+
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [
+            {
+              role: 'user',
+              parts: [
+                {
+                  text: `${systemPrompt}\n\nContext Data:\n${JSON.stringify(userPayload, null, 2)}\n\nPlease provide a clear, factual, and cited response to the user's question.`,
+                },
+              ],
+            },
+          ],
+          generationConfig: {
+            temperature: 0.2,
+            maxOutputTokens: 1000,
           },
-        ],
-        generationConfig: {
-          temperature: 0.2,
-          maxOutputTokens: 1000,
-        },
-      }),
-    });
+        }),
+        signal: controller.signal,
+      });
 
-    if (!res.ok) {
-      throw new Error(`Gemini API error ${res.status}: ${await res.text()}`);
+      if (!res.ok) {
+        throw new Error(`Gemini API error ${res.status}: ${await res.text()}`);
+      }
+
+      const json = (await res.json()) as {
+        candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+      };
+
+      const candidateText = json.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (!candidateText || candidateText.trim() === '') {
+        throw new Error('No candidate text returned by Gemini');
+      }
+
+      return candidateText;
+    } catch (err: unknown) {
+      if (err instanceof Error && err.name === 'AbortError') {
+        throw new Error('Gemini API call timed out after 15000ms');
+      }
+      throw err;
+    } finally {
+      clearTimeout(timeoutId);
     }
-
-    const json = (await res.json()) as {
-      candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
-    };
-
-    const candidateText = json.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!candidateText) {
-      throw new Error('No candidate text returned by Gemini');
-    }
-
-    return candidateText;
   }
 
   private deterministicSynthesize(params: {
