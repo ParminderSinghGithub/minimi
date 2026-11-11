@@ -98,6 +98,35 @@ describe('Temporal Expression Resolver', () => {
     expect(res.temporal?.endDate).toBe('2026-11-03T23:59:59.999Z');
   });
 
+  it('should resolve multi-day range "last week" with isRange: true', () => {
+    const res = resolveTemporalExpression('What did we accomplish last week?', anchor, 'UTC');
+    expect(res.temporal).toBeDefined();
+    expect(res.temporal?.expression).toMatch(/last week/i);
+    expect(res.temporal?.isRange).toBe(true);
+    // Anchor Nov 11 -> start Nov 04, end Nov 11
+    expect(res.temporal?.startDate).toBe('2026-11-04T00:00:00.000Z');
+    expect(res.temporal?.endDate).toBe('2026-11-11T23:59:59.999Z');
+  });
+
+  it('should resolve "2 weeks ago" range accurately', () => {
+    const res = resolveTemporalExpression('What did I ask you 2 weeks ago?', anchor, 'UTC');
+    expect(res.temporal).toBeDefined();
+    expect(res.temporal?.expression).toMatch(/2 weeks ago/i);
+    expect(res.temporal?.isRange).toBe(true);
+    // 2 weeks ago: Nov 11 - 14 days = Oct 28, end Nov 11 - 7 days = Nov 04
+    expect(res.temporal?.startDate).toBe('2026-10-28T00:00:00.000Z');
+    expect(res.temporal?.endDate).toBe('2026-11-04T23:59:59.999Z');
+  });
+
+  it('should resolve "last month" range accurately', () => {
+    const res = resolveTemporalExpression('Review our discussion from last month', anchor, 'UTC');
+    expect(res.temporal).toBeDefined();
+    expect(res.temporal?.expression).toMatch(/last month/i);
+    expect(res.temporal?.isRange).toBe(true);
+    expect(res.temporal?.startDate).toBe('2026-10-12T00:00:00.000Z');
+    expect(res.temporal?.endDate).toBe('2026-11-11T23:59:59.999Z');
+  });
+
   it('should extract meaningful keywords ignoring conversational stopwords', () => {
     const kws = extractKeywords('On Monday we shortlisted 5 CRM tools for a 20-person sales team.');
     expect(kws).toContain('crm');

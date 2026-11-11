@@ -253,7 +253,19 @@ export function planSearchQueries(
     }
   }
 
-  return plans.slice(0, maxQueries);
+  // Deduplicate search plans by normalized query string
+  const uniquePlans: SearchQueryPlan[] = [];
+  const seenQueries = new Set<string>();
+
+  for (const plan of plans) {
+    const normalized = plan.query.trim().toLowerCase();
+    if (!seenQueries.has(normalized)) {
+      seenQueries.add(normalized);
+      uniquePlans.push(plan);
+    }
+  }
+
+  return uniquePlans.slice(0, maxQueries);
 }
 
 /**

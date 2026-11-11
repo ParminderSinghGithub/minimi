@@ -290,6 +290,11 @@ function formatMarkdown(text) {
   formatted = formatted.replace(/\*(.*?)\*/g, '<em>$1</em>');
   // Headers
   formatted = formatted.replace(/^### (.*$)/gim, '<h4 style="margin: 10px 0 4px; color: #e0e7ff;">$1</h4>');
+  // Markdown links: [label](url)
+  formatted = formatted.replace(
+    /\[([^\]]+)\]\((https?:\/\/[^\s\)\"\'\<\>]+)\)/g,
+    '<a href="$2" target="_blank" rel="noopener noreferrer" style="color: #818cf8; text-decoration: underline;">$1</a>'
+  );
   // Bullet lists
   formatted = formatted.replace(/^\• (.*$)/gim, '<li style="margin-left: 18px;">$1</li>');
   formatted = formatted.replace(/^\- (.*$)/gim, '<li style="margin-left: 18px;">$1</li>');

@@ -136,6 +136,26 @@ export function createDayBoundaries(
 }
 
 /**
+ * Format local start and end dates into ISO boundaries, respecting the IANA timezone offset
+ */
+export function createRangeBoundaries(
+  startYear: number,
+  startMonth: number,
+  startDay: number,
+  endYear: number,
+  endMonth: number,
+  endDay: number,
+  timeZone: string = 'UTC'
+): { startDate: string; endDate: string } {
+  const startBounds = createDayBoundaries(startYear, startMonth, startDay, timeZone);
+  const endBounds = createDayBoundaries(endYear, endMonth, endDay, timeZone);
+  return {
+    startDate: startBounds.startDate,
+    endDate: endBounds.endDate,
+  };
+}
+
+/**
  * Resolves temporal expressions from a user prompt against an anchor date and timezone.
  */
 export function resolveTemporalExpression(
@@ -315,6 +335,83 @@ export function resolveTemporalExpression(
           timezone,
         };
       }
+    }
+  }
+
+  // 5. Multi-day ranges: "last week", "past week", "this past week", "last month", "past month", "X weeks ago"
+  if (!temporal) {
+    const lastWeekMatch = lower.match(/\b(?:this\s+)?(?:last|past)\s+week\b/i);
+    const weeksAgoMatch = lower.match(/\b(\d+)\s+weeks?\s+ago\b/i);
+    const lastMonthMatch = lower.match(/\b(?:this\s+)?(?:last|past)\s+month\b/i);
+
+    if (lastWeekMatch) {
+      matchedExpression = lastWeekMatch[0];
+      const anchorLocalMidday = new Date(Date.UTC(anchorYear, anchorMonth, anchorDay, 12, 0, 0));
+      const startLocalMidday = new Date(anchorLocalMidday.getTime() - 7 * 86400000);
+      const bounds = createRangeBoundaries(
+        startLocalMidday.getUTCFullYear(),
+        startLocalMidday.getUTCMonth(),
+        startLocalMidday.getUTCDate(),
+        anchorYear,
+        anchorMonth,
+        anchorDay,
+        timezone
+      );
+      temporal = {
+        expression: matchedExpression,
+        startDate: bounds.startDate,
+        endDate: bounds.endDate,
+        isRange: true,
+        confidence: 0.9,
+        referenceTimestamp: referenceDate.toISOString(),
+        timezone,
+      };
+    } else if (weeksAgoMatch) {
+      matchedExpression = weeksAgoMatch[0];
+      const count = parseInt(weeksAgoMatch[1], 10);
+      const anchorLocalMidday = new Date(Date.UTC(anchorYear, anchorMonth, anchorDay, 12, 0, 0));
+      const startLocalMidday = new Date(anchorLocalMidday.getTime() - count * 7 * 86400000);
+      const endLocalMidday = new Date(anchorLocalMidday.getTime() - (count - 1) * 7 * 86400000);
+      const bounds = createRangeBoundaries(
+        startLocalMidday.getUTCFullYear(),
+        startLocalMidday.getUTCMonth(),
+        startLocalMidday.getUTCDate(),
+        endLocalMidday.getUTCFullYear(),
+        endLocalMidday.getUTCMonth(),
+        endLocalMidday.getUTCDate(),
+        timezone
+      );
+      temporal = {
+        expression: matchedExpression,
+        startDate: bounds.startDate,
+        endDate: bounds.endDate,
+        isRange: true,
+        confidence: 0.9,
+        referenceTimestamp: referenceDate.toISOString(),
+        timezone,
+      };
+    } else if (lastMonthMatch) {
+      matchedExpression = lastMonthMatch[0];
+      const anchorLocalMidday = new Date(Date.UTC(anchorYear, anchorMonth, anchorDay, 12, 0, 0));
+      const startLocalMidday = new Date(anchorLocalMidday.getTime() - 30 * 86400000);
+      const bounds = createRangeBoundaries(
+        startLocalMidday.getUTCFullYear(),
+        startLocalMidday.getUTCMonth(),
+        startLocalMidday.getUTCDate(),
+        anchorYear,
+        anchorMonth,
+        anchorDay,
+        timezone
+      );
+      temporal = {
+        expression: matchedExpression,
+        startDate: bounds.startDate,
+        endDate: bounds.endDate,
+        isRange: true,
+        confidence: 0.9,
+        referenceTimestamp: referenceDate.toISOString(),
+        timezone,
+      };
     }
   }
 
