@@ -22,6 +22,29 @@ describe('Temporal Expression Resolver', () => {
     expect(res.temporal?.endDate).toBe('2026-11-10T23:59:59.999Z');
   });
 
+  it('should resolve midnight transitions accurately in Asia/Kolkata timezone (+05:30)', () => {
+    // 2026-11-11T20:00:00.000Z is 2026-11-12T01:30:00 in Asia/Kolkata (Thursday)
+    const lateUtcDate = new Date('2026-11-11T20:00:00.000Z');
+    const res = resolveTemporalExpression('What is scheduled today?', lateUtcDate, 'Asia/Kolkata');
+
+    expect(res.temporal).toBeDefined();
+    // Midnight in Asia/Kolkata for Nov 12 is 2026-11-11T18:30:00.000Z
+    expect(res.temporal?.startDate).toBe('2026-11-11T18:30:00.000Z');
+    // End of day in Asia/Kolkata for Nov 12 is 2026-11-12T18:29:59.999Z
+    expect(res.temporal?.endDate).toBe('2026-11-12T18:29:59.999Z');
+  });
+
+  it('should resolve week-boundary transitions across Sunday and Monday', () => {
+    // Sunday Nov 15, 2026 10:00 UTC
+    const sundayAnchor = new Date('2026-11-15T10:00:00.000Z');
+    const res = resolveTemporalExpression('What did we discuss on Monday?', sundayAnchor, 'UTC');
+
+    expect(res.temporal).toBeDefined();
+    // Sunday Nov 15 -> previous Monday Nov 9
+    expect(res.temporal?.startDate).toBe('2026-11-09T00:00:00.000Z');
+    expect(res.temporal?.endDate).toBe('2026-11-09T23:59:59.999Z');
+  });
+
   it('should resolve "on Monday" when today is Wednesday (2 days prior)', () => {
     const res = resolveTemporalExpression(
       'On Monday we shortlisted 5 CRM tools for a 20-person sales team.',

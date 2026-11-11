@@ -74,6 +74,7 @@ export class TavilySearchProvider implements WebSearchProvider {
         publishedDate: item.published_date,
         category: options?.category || 'general',
         retrievedAt: new Date().toISOString(),
+        isMock: false,
       }));
 
       return results;
@@ -97,7 +98,10 @@ export class MockSearchProvider implements WebSearchProvider {
   private failNextSearch: boolean = false;
 
   setMockResponse(querySubstring: string, results: SearchResultItem[]): void {
-    this.customMockData.set(querySubstring.toLowerCase(), results);
+    this.customMockData.set(
+      querySubstring.toLowerCase(),
+      results.map(r => ({ ...r, isMock: true }))
+    );
   }
 
   setShouldFail(fail: boolean): void {
@@ -119,26 +123,30 @@ export class MockSearchProvider implements WebSearchProvider {
       }
     }
 
-    // Default realistic mock data for challenge scenarios
+    // Default realistic mock data for challenge scenarios (marked with isMock: true)
     if (lowerQuery.includes('supabase') && lowerQuery.includes('pricing')) {
       return [
         {
           id: 'mock-sb-1',
           title: 'Supabase Pricing & Compute Updates',
           url: 'https://supabase.com/pricing',
-          snippet: 'Supabase Pro remains at $25/month including $10 compute credits. In late 2024, compute pricing introduced fractional add-ons.',
+          snippet:
+            'Supabase Pro remains at $25/month including $10 compute credits. In late 2024, compute pricing introduced fractional add-ons.',
           publishedDate: '2026-11-05',
           category: 'pricing',
           retrievedAt: new Date().toISOString(),
+          isMock: true,
         },
         {
           id: 'mock-sb-2',
           title: 'Supabase Changelog - November 2026',
           url: 'https://supabase.com/changelog',
-          snippet: 'Shipped support for Postgres 17 in early access, enhanced vector indexing performance by 3x.',
+          snippet:
+            'Shipped support for Postgres 17 in early access, enhanced vector indexing performance by 3x.',
           publishedDate: '2026-11-08',
           category: 'changelog',
           retrievedAt: new Date().toISOString(),
+          isMock: true,
         },
       ];
     }
@@ -149,24 +157,31 @@ export class MockSearchProvider implements WebSearchProvider {
           id: 'mock-neon-1',
           title: 'Neon Serverless Postgres Pricing',
           url: 'https://neon.tech/pricing',
-          snippet: 'Neon Launch plan remains $19/mo. Scale plan at $69/mo. Compute unit billing unchanged at $0.16/CU-hr.',
+          snippet:
+            'Neon Launch plan remains $19/mo. Scale plan at $69/mo. Compute unit billing unchanged at $0.16/CU-hr.',
           publishedDate: '2026-11-04',
           category: 'pricing',
           retrievedAt: new Date().toISOString(),
+          isMock: true,
         },
       ];
     }
 
-    if (lowerQuery.includes('hubspot') && (lowerQuery.includes('pricing') || lowerQuery.includes('crm'))) {
+    if (
+      lowerQuery.includes('hubspot') &&
+      (lowerQuery.includes('pricing') || lowerQuery.includes('crm') || lowerQuery.includes('changelog'))
+    ) {
       return [
         {
           id: 'mock-hs-1',
           title: 'HubSpot Sales Hub Pricing & Packaging',
           url: 'https://www.hubspot.com/pricing/sales',
-          snippet: 'HubSpot Sales Hub Pro is $100/seat/month. HubSpot recently introduced Breeze AI copilot features across all Pro tiers at no extra charge.',
+          snippet:
+            'HubSpot Sales Hub Pro is $100/seat/month. HubSpot recently introduced Breeze AI copilot features across all Pro tiers at no extra charge.',
           publishedDate: '2026-11-08',
           category: 'pricing',
           retrievedAt: new Date().toISOString(),
+          isMock: true,
         },
       ];
     }
@@ -177,24 +192,29 @@ export class MockSearchProvider implements WebSearchProvider {
           id: 'mock-sf-1',
           title: 'Salesforce Sales Cloud Pricing',
           url: 'https://www.salesforce.com/editions-pricing/sales-cloud/',
-          snippet: 'Sales Cloud Enterprise is $165/user/month billed annually. Agentforce service add-on launched in October.',
+          snippet:
+            'Sales Cloud Enterprise is $165/user/month billed annually. Agentforce service add-on launched in October.',
           publishedDate: '2026-11-01',
           category: 'pricing',
           retrievedAt: new Date().toISOString(),
+          isMock: true,
         },
       ];
     }
 
-    // Generic fallback mock
+    // In offline mock mode, unscripted queries return a clear, honest mock diagnostic indicator
+    // rather than disguising example.com as genuine web evidence
     return [
       {
-        id: `mock-gen-${Date.now()}`,
-        title: `Search Result for ${query}`,
-        url: `https://example.com/search?q=${encodeURIComponent(query)}`,
-        snippet: `Current official documentation and updates regarding ${query}.`,
+        id: `mock-offline-${Date.now()}`,
+        title: `No offline simulation entry for "${query}"`,
+        url: `https://minimi.local/offline-mode?query=${encodeURIComponent(query)}`,
+        snippet:
+          `[Offline Mock Mode Active] No live search credentials configured (TAVILY_API_KEY). Real web search was not performed for this query.`,
         publishedDate: new Date().toISOString().slice(0, 10),
         category: options?.category || 'general',
         retrievedAt: new Date().toISOString(),
+        isMock: true,
       },
     ];
   }
@@ -218,7 +238,8 @@ export function createSearchProvider(
 }
 
 /**
- * Transforms search results into ordered, deduplicated citations
+ * Transforms search results into ordered, deduplicated citations.
+ * Clearly marks simulated/mock citations so reviewers know when offline mode is active.
  */
 export function buildCitations(results: SearchResultItem[]): Citation[] {
   const seenUrls = new Set<string>();
@@ -228,12 +249,18 @@ export function buildCitations(results: SearchResultItem[]): Citation[] {
     if (!item.url || seenUrls.has(item.url)) continue;
     seenUrls.add(item.url);
 
+    const isMock = Boolean(item.isMock);
+    const displayTitle = isMock && !item.title.startsWith('[Demo Simulation]')
+      ? `[Demo Simulation] ${item.title}`
+      : item.title;
+
     citations.push({
       id: citations.length + 1,
-      title: item.title,
+      title: displayTitle,
       url: item.url,
       snippet: item.snippet,
       publishedDate: item.publishedDate,
+      isMock,
     });
   }
 

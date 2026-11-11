@@ -44,17 +44,90 @@ export interface TemporalExtractionResult {
 }
 
 /**
- * Format local date components into ISO start/end of day UTC
+ * Calculates the UTC offset in minutes for a specific Date in a given IANA timezone
  */
-function createDayBoundaries(
+export function getTimezoneOffsetMinutes(date: Date, timeZone: string): number {
+  try {
+    const formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      year: 'numeric',
+      month: 'numeric',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: 'numeric',
+      second: 'numeric',
+      hour12: false,
+    });
+    const parts = formatter.formatToParts(date);
+    const p: Record<string, number> = {};
+    for (const part of parts) {
+      if (part.type !== 'literal') {
+        p[part.type] = parseInt(part.value, 10);
+      }
+    }
+    const hour = p.hour === 24 ? 0 : p.hour;
+    const localAsUtcMs = Date.UTC(p.year, p.month - 1, p.day, hour, p.minute, p.second);
+    return Math.round((localAsUtcMs - date.getTime()) / 60000);
+  } catch {
+    return 0; // Fallback to UTC if timezone is invalid
+  }
+}
+
+/**
+ * Extracts calendar date components for a Date in a target timezone
+ */
+export function getZonedDateParts(
+  date: Date,
+  timeZone: string
+): { year: number; month: number; day: number; dayOfWeek: number } {
+  try {
+    const formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      year: 'numeric',
+      month: 'numeric',
+      day: 'numeric',
+      weekday: 'short',
+    });
+    const parts = formatter.formatToParts(date);
+    const p: Record<string, string> = {};
+    for (const part of parts) {
+      if (part.type !== 'literal') {
+        p[part.type] = part.value;
+      }
+    }
+    const year = parseInt(p.year, 10);
+    const month = parseInt(p.month, 10) - 1;
+    const day = parseInt(p.day, 10);
+    const weekdayName = (p.weekday || '').toLowerCase();
+    const dayOfWeek = DAYS_OF_WEEK[weekdayName] ?? new Date(Date.UTC(year, month, day)).getUTCDay();
+
+    return { year, month, day, dayOfWeek };
+  } catch {
+    return {
+      year: date.getUTCFullYear(),
+      month: date.getUTCMonth(),
+      day: date.getUTCDate(),
+      dayOfWeek: date.getUTCDay(),
+    };
+  }
+}
+
+/**
+ * Format local date components into ISO start/end of day UTC, respecting the IANA timezone offset
+ */
+export function createDayBoundaries(
   year: number,
   month: number,
   day: number,
-  timezoneOffsetHours: number = 0
+  timeZone: string = 'UTC'
 ): { startDate: string; endDate: string } {
-  // Construct day range in target timezone offset
-  const startUtcMs = Date.UTC(year, month, day, 0, 0, 0, 0) - timezoneOffsetHours * 3600000;
-  const endUtcMs = Date.UTC(year, month, day, 23, 59, 59, 999) - timezoneOffsetHours * 3600000;
+  // Estimate target date at midday UTC
+  const approxDate = new Date(Date.UTC(year, month, day, 12, 0, 0));
+  const offsetMinutes = getTimezoneOffsetMinutes(approxDate, timeZone);
+
+  // Construct start and end of day in local time, converted to UTC
+  const startUtcMs = Date.UTC(year, month, day, 0, 0, 0, 0) - offsetMinutes * 60000;
+  const endUtcMs = Date.UTC(year, month, day, 23, 59, 59, 999) - offsetMinutes * 60000;
 
   return {
     startDate: new Date(startUtcMs).toISOString(),
@@ -63,7 +136,7 @@ function createDayBoundaries(
 }
 
 /**
- * Resolves temporal expressions from a user prompt against an anchor date.
+ * Resolves temporal expressions from a user prompt against an anchor date and timezone.
  */
 export function resolveTemporalExpression(
   text: string,
@@ -71,10 +144,10 @@ export function resolveTemporalExpression(
   timezone: string = process.env.TIMEZONE || 'Asia/Kolkata'
 ): TemporalExtractionResult {
   const lower = text.toLowerCase();
-  const anchorYear = referenceDate.getFullYear();
-  const anchorMonth = referenceDate.getMonth();
-  const anchorDay = referenceDate.getDate();
-  const anchorDayOfWeek = referenceDate.getDay();
+
+  // Extract reference date components in the specified timezone
+  const { year: anchorYear, month: anchorMonth, day: anchorDay, dayOfWeek: anchorDayOfWeek } =
+    getZonedDateParts(referenceDate, timezone);
 
   let temporal: TemporalResolution | undefined;
   let matchedExpression = '';
@@ -86,7 +159,7 @@ export function resolveTemporalExpression(
     const y = parseInt(isoMatch[1], 10);
     const m = parseInt(isoMatch[2], 10) - 1;
     const d = parseInt(isoMatch[3], 10);
-    const bounds = createDayBoundaries(y, m, d);
+    const bounds = createDayBoundaries(y, m, d, timezone);
     temporal = {
       expression: matchedExpression,
       startDate: bounds.startDate,
@@ -100,8 +173,10 @@ export function resolveTemporalExpression(
 
   // 2. Exact Day Month: "3 November", "3rd Nov", "November 3", "Nov 3rd"
   if (!temporal) {
-    const dayMonthRegex = /\b(?:on\s+)?(\d{1,2})(?:st|nd|rd|th)?\s+(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sep|sept|oct|nov|dec)(?:\s+(\d{4}))?\b/i;
-    const monthDayRegex = /\b(?:on\s+)?(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sep|sept|oct|nov|dec)\s+(\d{1,2})(?:st|nd|rd|th)?(?:\s+(\d{4}))?\b/i;
+    const dayMonthRegex =
+      /\b(?:on\s+)?(\d{1,2})(?:st|nd|rd|th)?\s+(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sep|sept|oct|nov|dec)(?:\s+(\d{4}))?\b/i;
+    const monthDayRegex =
+      /\b(?:on\s+)?(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sep|sept|oct|nov|dec)\s+(\d{1,2})(?:st|nd|rd|th)?(?:\s+(\d{4}))?\b/i;
 
     const dm = lower.match(dayMonthRegex);
     const md = lower.match(monthDayRegex);
@@ -111,7 +186,7 @@ export function resolveTemporalExpression(
       const d = parseInt(dm[1], 10);
       const m = MONTHS[dm[2].toLowerCase()];
       const y = dm[3] ? parseInt(dm[3], 10) : anchorYear;
-      const bounds = createDayBoundaries(y, m, d);
+      const bounds = createDayBoundaries(y, m, d, timezone);
       temporal = {
         expression: matchedExpression,
         startDate: bounds.startDate,
@@ -126,7 +201,7 @@ export function resolveTemporalExpression(
       const m = MONTHS[md[1].toLowerCase()];
       const d = parseInt(md[2], 10);
       const y = md[3] ? parseInt(md[3], 10) : anchorYear;
-      const bounds = createDayBoundaries(y, m, d);
+      const bounds = createDayBoundaries(y, m, d, timezone);
       temporal = {
         expression: matchedExpression,
         startDate: bounds.startDate,
@@ -141,7 +216,8 @@ export function resolveTemporalExpression(
 
   // 3. Relative Day of Week: "on Monday", "last Tuesday", "this Monday"
   if (!temporal) {
-    const dayOfWeekRegex = /\b(?:(last|this|past|previous|on)\s+)?(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i;
+    const dayOfWeekRegex =
+      /\b(?:(last|this|past|previous|on)\s+)?(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i;
     const dowMatch = lower.match(dayOfWeekRegex);
 
     if (dowMatch) {
@@ -153,21 +229,22 @@ export function resolveTemporalExpression(
       if (dayDifference === 0) {
         dayDifference = modifier === 'last' || modifier === 'past' ? 7 : 0;
       } else if (modifier === 'last' || modifier === 'past' || modifier === 'previous') {
-        // "last Tuesday" when today is Wednesday (diff is 1) or Monday (diff is 6)
         if (anchorDayOfWeek <= targetDow) {
           dayDifference = anchorDayOfWeek + 7 - targetDow;
         } else {
-          // If anchor is Wednesday (3) and target is Tuesday (2), "last Tuesday" can mean 1 day ago or previous week's Tuesday (8 days ago)
-          // To be safe in conversational context: if user says "last Tuesday" on Wednesday, it commonly refers to the preceding Tuesday
           dayDifference = anchorDayOfWeek - targetDow;
         }
       }
 
-      const targetDate = new Date(referenceDate.getTime() - dayDifference * 86400000);
+      // Compute target local calendar date
+      const anchorLocalMidday = new Date(Date.UTC(anchorYear, anchorMonth, anchorDay, 12, 0, 0));
+      const targetLocalMidday = new Date(anchorLocalMidday.getTime() - dayDifference * 86400000);
+
       const bounds = createDayBoundaries(
-        targetDate.getFullYear(),
-        targetDate.getMonth(),
-        targetDate.getDate()
+        targetLocalMidday.getUTCFullYear(),
+        targetLocalMidday.getUTCMonth(),
+        targetLocalMidday.getUTCDate(),
+        timezone
       );
 
       temporal = {
@@ -186,11 +263,13 @@ export function resolveTemporalExpression(
   if (!temporal) {
     if (/\byesterday\b/i.test(lower)) {
       matchedExpression = 'yesterday';
-      const targetDate = new Date(referenceDate.getTime() - 86400000);
+      const anchorLocalMidday = new Date(Date.UTC(anchorYear, anchorMonth, anchorDay, 12, 0, 0));
+      const targetLocalMidday = new Date(anchorLocalMidday.getTime() - 86400000);
       const bounds = createDayBoundaries(
-        targetDate.getFullYear(),
-        targetDate.getMonth(),
-        targetDate.getDate()
+        targetLocalMidday.getUTCFullYear(),
+        targetLocalMidday.getUTCMonth(),
+        targetLocalMidday.getUTCDate(),
+        timezone
       );
       temporal = {
         expression: 'yesterday',
@@ -203,7 +282,7 @@ export function resolveTemporalExpression(
       };
     } else if (/\btoday\b/i.test(lower)) {
       matchedExpression = 'today';
-      const bounds = createDayBoundaries(anchorYear, anchorMonth, anchorDay);
+      const bounds = createDayBoundaries(anchorYear, anchorMonth, anchorDay, timezone);
       temporal = {
         expression: 'today',
         startDate: bounds.startDate,
@@ -218,11 +297,13 @@ export function resolveTemporalExpression(
       if (daysAgoMatch) {
         matchedExpression = daysAgoMatch[0];
         const count = parseInt(daysAgoMatch[1], 10);
-        const targetDate = new Date(referenceDate.getTime() - count * 86400000);
+        const anchorLocalMidday = new Date(Date.UTC(anchorYear, anchorMonth, anchorDay, 12, 0, 0));
+        const targetLocalMidday = new Date(anchorLocalMidday.getTime() - count * 86400000);
         const bounds = createDayBoundaries(
-          targetDate.getFullYear(),
-          targetDate.getMonth(),
-          targetDate.getDate()
+          targetLocalMidday.getUTCFullYear(),
+          targetLocalMidday.getUTCMonth(),
+          targetLocalMidday.getUTCDate(),
+          timezone
         );
         temporal = {
           expression: matchedExpression,
@@ -274,4 +355,3 @@ export function extractKeywords(text: string): string[] {
     .filter(w => w.length > 2 && !STOPWORDS.has(w));
   return Array.from(new Set(words));
 }
-

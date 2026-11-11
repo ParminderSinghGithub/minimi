@@ -69,6 +69,7 @@ export interface SearchResultItem {
   publishedDate?: string;
   category?: SearchCategory;
   retrievedAt: string;
+  isMock?: boolean;
 }
 
 export type EvidenceStatus =
@@ -82,6 +83,7 @@ export interface Citation {
   url: string;
   snippet: string;
   publishedDate?: string;
+  isMock?: boolean;
 }
 
 export interface DeltaComparison {

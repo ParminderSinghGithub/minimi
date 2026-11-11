@@ -145,4 +145,31 @@ describe('Web Search Tool & Search Planner', () => {
     const provider = createSearchProvider('tavily', 'your_tavily_api_key_here');
     expect(provider.name).toBe('mock');
   });
+
+  it('should clearly mark mock citations with [Demo Simulation] and isMock: true', () => {
+    const citations = buildCitations([
+      {
+        id: 'mock-1',
+        title: 'Supabase Pricing',
+        url: 'https://supabase.com/pricing',
+        snippet: 'Pro plan is $25/mo',
+        publishedDate: '2026-11-05',
+        retrievedAt: new Date().toISOString(),
+        isMock: true,
+      },
+    ]);
+
+    expect(citations[0].isMock).toBe(true);
+    expect(citations[0].title).toContain('[Demo Simulation]');
+  });
+
+  it('should not emit example.com as authentic web evidence for unscripted mock queries', async () => {
+    const provider = new MockSearchProvider();
+    const results = await provider.search('unknown esoteric query xyz 123');
+
+    expect(results).toHaveLength(1);
+    expect(results[0].url).not.toContain('example.com');
+    expect(results[0].url).toContain('offline-mode');
+    expect(results[0].snippet).toContain('[Offline Mock Mode Active]');
+  });
 });
