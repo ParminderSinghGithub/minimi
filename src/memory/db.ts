@@ -154,7 +154,7 @@ export class MemoryStore {
     if (!this.db) throw new Error('Database not initialized');
 
     const stmt = this.db.prepare(
-      'SELECT id, session_id, role, content, created_at, metadata FROM messages WHERE session_id = ? ORDER BY created_at ASC LIMIT ?'
+      'SELECT id, session_id, role, content, created_at, metadata FROM (SELECT id, session_id, role, content, created_at, metadata FROM messages WHERE session_id = ? ORDER BY created_at DESC LIMIT ?) sub ORDER BY created_at ASC'
     );
     stmt.bind([sessionId, limit]);
 
@@ -286,12 +286,21 @@ export class MemoryStore {
     stmt.free();
 
     // If temporal filter was applied but yielded no messages with keywords,
-    // fallback to all messages from that temporal window so the agent knows what occurred
+    // fallback to all messages from that temporal window for this session so the agent knows what occurred
     if (messages.length === 0 && filter.temporal && ftsMessageIds && ftsMessageIds.size > 0) {
-      const fallbackStmt = this.db.prepare(
-        'SELECT m.id, m.session_id, m.role, m.content, m.created_at, m.metadata FROM messages m WHERE m.created_at >= ? AND m.created_at <= ? ORDER BY m.created_at ASC'
-      );
-      fallbackStmt.bind([filter.temporal.startDate, filter.temporal.endDate]);
+      let fallbackQuery =
+        'SELECT m.id, m.session_id, m.role, m.content, m.created_at, m.metadata FROM messages m WHERE m.created_at >= ? AND m.created_at <= ?';
+      const fallbackParams: (string | number)[] = [filter.temporal.startDate, filter.temporal.endDate];
+
+      if (filter.sessionId) {
+        fallbackQuery += ' AND m.session_id = ?';
+        fallbackParams.push(filter.sessionId);
+      }
+
+      fallbackQuery += ' ORDER BY m.created_at ASC';
+
+      const fallbackStmt = this.db.prepare(fallbackQuery);
+      fallbackStmt.bind(fallbackParams);
       while (fallbackStmt.step()) {
         const row = fallbackStmt.getAsObject() as {
           id: string;

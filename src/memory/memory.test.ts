@@ -238,5 +238,64 @@ describe('MemoryStore (SQLite + FTS4 + Temporal Filter)', () => {
     expect(tuesdaySearch.hasExactMatch).toBe(true);
     expect(tuesdaySearch.messages.some(m => m.content.includes('Postgres'))).toBe(true);
   });
+
+  it('should return the latest N messages in ascending chronological order when limit is reached', () => {
+    const sessId = 'sess-ordering';
+    memory.createSession(sessId);
+
+    // Insert 5 timestamped messages
+    for (let i = 1; i <= 5; i++) {
+      memory.addMessage({
+        id: `msg-${i}`,
+        sessionId: sessId,
+        role: 'user',
+        content: `Message number ${i}`,
+        createdAt: `2026-11-11T10:0${i}:00.000Z`,
+      });
+    }
+
+    // Request the 3 most recent messages
+    const recent = memory.getRecentMessages(sessId, 3);
+    expect(recent).toHaveLength(3);
+    // Must be msg-3, msg-4, msg-5 in chronological order
+    expect(recent[0].id).toBe('msg-3');
+    expect(recent[1].id).toBe('msg-4');
+    expect(recent[2].id).toBe('msg-5');
+  });
+
+  it('should strictly isolate sessions during temporal fallback and prevent cross-session leaks', () => {
+    const sessionA = 'session-private-a';
+    const sessionB = 'session-isolated-b';
+    memory.createSession(sessionA);
+    memory.createSession(sessionB);
+
+    // Add private message in session A on Nov 3
+    memory.addMessage({
+      id: 'private-msg-a',
+      sessionId: sessionA,
+      role: 'user',
+      content: 'Confidential strategic pricing for CRM in session A',
+      createdAt: '2026-11-03T10:00:00.000Z',
+    });
+
+    // Session B queries Nov 3 with an unmatched keyword, triggering temporal fallback
+    const resultB = memory.searchMemory({
+      sessionId: sessionB,
+      keywords: ['unmatched_keyword_xyz'],
+      temporal: {
+        expression: '3 November',
+        startDate: '2026-11-03T00:00:00.000Z',
+        endDate: '2026-11-03T23:59:59.999Z',
+        isRange: false,
+        confidence: 0.95,
+        referenceTimestamp: anchor.toISOString(),
+        timezone: 'UTC',
+      },
+    });
+
+    // Session B must NOT receive Session A's message
+    expect(resultB.messages).toHaveLength(0);
+    expect(resultB.hasExactMatch).toBe(false);
+  });
 });
 
