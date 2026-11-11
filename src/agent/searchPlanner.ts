@@ -46,6 +46,33 @@ const KNOWN_ENTITIES = [
   'raycast',
 ];
 
+const GENERIC_TERMS = new Set([
+  'crm',
+  'tool',
+  'tools',
+  'app',
+  'apps',
+  'software',
+  'platform',
+  'database',
+  'db',
+  'hosting',
+  'service',
+  'services',
+  'sales',
+  'sales team',
+  'shortlist',
+  'shortlisted',
+  'shortlisted 5',
+  'team',
+  'option',
+  'options',
+  'plan',
+  'plans',
+  'pricing',
+  'price',
+]);
+
 /**
  * Extracts entities mentioned in user query or prior messages.
  * Recognizes multi-word tools, quoted terms, and software/app phrases dynamically.
@@ -57,7 +84,7 @@ export function extractTargetEntities(userQuery: string, memoryMessages: Message
   const quotedMatches = userQuery.match(/["']([^"']+)["']/g) || [];
   for (const q of quotedMatches) {
     const unquoted = q.slice(1, -1).trim();
-    if (unquoted.length > 1) {
+    if (unquoted.length > 1 && !GENERIC_TERMS.has(unquoted.toLowerCase())) {
       userMatched.add(unquoted.toLowerCase());
     }
   }
@@ -66,14 +93,26 @@ export function extractTargetEntities(userQuery: string, memoryMessages: Message
   for (const entity of KNOWN_ENTITIES) {
     const regex = new RegExp(`\\b${escapeRegex(entity)}\\b`, 'i');
     if (regex.test(userQuery)) {
-      userMatched.add(entity);
+      if (entity === 'close crm') {
+        userMatched.add('close');
+      } else if (entity === 'postgresql') {
+        userMatched.add('postgres');
+      } else {
+        userMatched.add(entity);
+      }
     }
   }
 
   // 3. Multi-word tool/software patterns: e.g. "Linear app", "Cursor IDE", "Raycast Pro"
-  const appPhraseMatch = userQuery.match(/\b([A-Z][a-zA-Z0-9_.-]+(?:\s+[a-zA-Z0-9_.-]+)?)\s+(?:app|tool|software|crm|platform|database|db|hosting|service)\b/i);
+  // Note: Case-sensitive for leading capitalized letters so words like "shortlisted" are not matched
+  const appPhraseMatch = userQuery.match(
+    /\b([A-Z][a-zA-Z0-9_.-]+(?:\s+[A-Z][a-zA-Z0-9_.-]+)?)\s+(?:app|tool|software|crm|platform|database|db|hosting|service)\b/
+  );
   if (appPhraseMatch && appPhraseMatch[1]) {
-    userMatched.add(appPhraseMatch[1].toLowerCase());
+    const term = appPhraseMatch[1].toLowerCase();
+    if (!GENERIC_TERMS.has(term)) {
+      userMatched.add(term);
+    }
   }
 
   // 4. Capitalized noun phrases (excluding query boilerplate words)
@@ -81,6 +120,7 @@ export function extractTargetEntities(userQuery: string, memoryMessages: Message
   for (const term of capitalizedTerms) {
     const lowerTerm = term.toLowerCase();
     if (
+      !GENERIC_TERMS.has(lowerTerm) &&
       ![
         'what',
         'when',
@@ -124,9 +164,12 @@ export function extractTargetEntities(userQuery: string, memoryMessages: Message
     }
   }
 
+  // Filter out any lingering generic terms
+  const filteredUser = Array.from(userMatched).filter(e => !GENERIC_TERMS.has(e.toLowerCase()));
+
   // If user query specifically mentions entities, prioritize them exclusively
-  if (userMatched.size > 0) {
-    return Array.from(userMatched);
+  if (filteredUser.length > 0) {
+    return filteredUser;
   }
 
   // 5. Fallback: If user query references past context (e.g. "Has any of them changed?"), pull entities from memory
@@ -135,7 +178,14 @@ export function extractTargetEntities(userQuery: string, memoryMessages: Message
     for (const entity of KNOWN_ENTITIES) {
       const regex = new RegExp(`\\b${escapeRegex(entity)}\\b`, 'i');
       if (regex.test(msg.content)) {
-        memoryMatched.add(entity);
+        // Standardize overlapping entity terms to avoid duplicate entity counting
+        if (entity === 'close crm') {
+          memoryMatched.add('close');
+        } else if (entity === 'postgresql') {
+          memoryMatched.add('postgres');
+        } else {
+          memoryMatched.add(entity);
+        }
       }
     }
   }
@@ -147,20 +197,27 @@ function escapeRegex(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+export interface SearchPlanningResult extends Array<SearchQueryPlan> {
+  searchedEntities: string[];
+  unsearchedEntities: string[];
+  isComplete: boolean;
+  coverageNote?: string;
+}
+
 /**
- * Generates targeted search queries with intent-specific query allocation
+ * Generates targeted search queries with fair entity and intent allocation
  */
 export function planSearchQueries(
   userQuery: string,
   memoryMessages: Message[] = [],
   temporal?: TemporalResolution,
   options: PlanAndExecuteOptions = {}
-): SearchQueryPlan[] {
+): SearchPlanningResult {
   const maxQueries = options.maxQueries ?? 5;
   const plans: SearchQueryPlan[] = [];
   const lowerQuery = userQuery.toLowerCase();
 
-  const isPricingIntent = /pricing|price|cost|tier|plan|bill|expensive|cheap/i.test(lowerQuery);
+  const isPricingIntent = /pricing|price|cost|tier|plan|bill|expensive|cheap|\$/i.test(lowerQuery);
   const isChangelogIntent =
     /shipped|release|update|change|new feature|changelog|announcement/i.test(lowerQuery);
 
@@ -169,12 +226,27 @@ export function planSearchQueries(
   // Timeframe hint
   const timeframe = temporal ? `since ${temporal.expression}` : `${new Date().getFullYear()}`;
 
+  const searchedEntitiesSet = new Set<string>();
+
   if (entities.length > 0) {
+    // Fair allocation: Round-robin across entities so every entity receives search coverage
+    // Pass 1: Ensure each entity receives at least 1 primary targeted query
+    let entityIdx = 0;
     for (const entity of entities) {
       if (plans.length >= maxQueries) break;
+      searchedEntitiesSet.add(entity);
 
-      // Intent-specific query allocation
-      if (isPricingIntent) {
+      if (isPricingIntent && isChangelogIntent) {
+        const category: SearchCategory = entityIdx % 2 === 0 ? 'pricing' : 'changelog';
+        plans.push({
+          query: `${entity} pricing updates release notes ${timeframe}`.trim(),
+          category,
+          targetEntity: entity,
+          intent: `Verify recent pricing changes and release updates for ${entity}`,
+          timeframeHint: timeframe,
+        });
+        entityIdx++;
+      } else if (isPricingIntent) {
         plans.push({
           query: `${entity} official pricing plans tiers ${timeframe}`.trim(),
           category: 'pricing',
@@ -182,19 +254,7 @@ export function planSearchQueries(
           intent: `Verify official current pricing and plans for ${entity}`,
           timeframeHint: timeframe,
         });
-
-        if (plans.length < maxQueries) {
-          plans.push({
-            query: `${entity} pricing changes ${timeframe}`.trim(),
-            category: 'pricing',
-            targetEntity: entity,
-            intent: `Check for recent pricing updates for ${entity}`,
-            timeframeHint: timeframe,
-          });
-        }
-      }
-
-      if (isChangelogIntent && plans.length < maxQueries) {
+      } else if (isChangelogIntent) {
         plans.push({
           query: `${entity} changelog release notes updates ${timeframe}`.trim(),
           category: 'changelog',
@@ -202,15 +262,40 @@ export function planSearchQueries(
           intent: `Check official release notes and changelog for ${entity}`,
           timeframeHint: timeframe,
         });
-      }
-
-      // If neither pricing nor changelog was explicitly flagged, provide balanced queries
-      if (!isPricingIntent && !isChangelogIntent) {
+      } else {
         plans.push({
           query: `${entity} official documentation updates ${timeframe}`.trim(),
           category: 'general',
           targetEntity: entity,
           intent: `General search for ${entity}`,
+        });
+      }
+    }
+
+    // Pass 2: If budget remains, add dedicated changelog queries
+    if (isChangelogIntent && plans.length < maxQueries) {
+      for (const entity of entities) {
+        if (plans.length >= maxQueries) break;
+        plans.push({
+          query: `${entity} changelog release notes ${timeframe}`.trim(),
+          category: 'changelog',
+          targetEntity: entity,
+          intent: `Check dedicated changelog for ${entity}`,
+          timeframeHint: timeframe,
+        });
+      }
+    }
+
+    // Pass 3: If budget remains and pricing was requested, add dedicated pricing changes queries
+    if (isPricingIntent && plans.length < maxQueries) {
+      for (const entity of entities) {
+        if (plans.length >= maxQueries) break;
+        plans.push({
+          query: `${entity} pricing changes ${timeframe}`.trim(),
+          category: 'pricing',
+          targetEntity: entity,
+          intent: `Check dedicated pricing changes for ${entity}`,
+          timeframeHint: timeframe,
         });
       }
     }
@@ -229,11 +314,13 @@ export function planSearchQueries(
         category: 'pricing',
         intent: 'Search official pricing details',
       });
-      plans.push({
-        query: `${cleanedPrompt} pricing changes updates`.trim(),
-        category: 'pricing',
-        intent: 'Search pricing changes',
-      });
+      if (plans.length < maxQueries) {
+        plans.push({
+          query: `${cleanedPrompt} pricing changes updates`.trim(),
+          category: 'pricing',
+          intent: 'Search pricing changes',
+        });
+      }
     }
 
     if (isChangelogIntent && plans.length < maxQueries) {
@@ -265,7 +352,26 @@ export function planSearchQueries(
     }
   }
 
-  return uniquePlans.slice(0, maxQueries);
+  const finalPlans = uniquePlans.slice(0, maxQueries);
+  const searchedEntities = Array.from(searchedEntitiesSet);
+  const unsearchedEntities = entities.filter(e => !searchedEntitiesSet.has(e));
+  const isComplete = unsearchedEntities.length === 0;
+
+  let coverageNote: string | undefined;
+  if (!isComplete) {
+    coverageNote = `Search budget reached (${maxQueries} queries). Checked: ${searchedEntities.join(
+      ', '
+    )}. Not checked within budget: ${unsearchedEntities.join(', ')}.`;
+  }
+
+  const result = Object.assign([...finalPlans], {
+    searchedEntities,
+    unsearchedEntities,
+    isComplete,
+    coverageNote,
+  });
+
+  return result as SearchPlanningResult;
 }
 
 /**

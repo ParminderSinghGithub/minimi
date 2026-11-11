@@ -50,9 +50,21 @@ export async function setupApp(customMemory?: MemoryStore, customAgent?: ChatAge
 // Health check endpoint
 app.get('/api/health', (_req, res) => {
   const isReady = Boolean(memoryStore && chatAgent);
+  const tavilyKey = process.env.TAVILY_API_KEY;
+  const isLiveSearch = Boolean(
+    tavilyKey && !tavilyKey.startsWith('your_') && process.env.SEARCH_PROVIDER !== 'mock'
+  );
+  const geminiKey = process.env.GEMINI_API_KEY;
+  const isLiveLLM = Boolean(geminiKey && !geminiKey.startsWith('your_'));
+
   res.status(isReady ? 200 : 503).json({
     status: isReady ? 'ok' : 'initializing',
     service: 'minimi-chat-agent',
+    mode: isLiveSearch ? 'live' : 'demo_simulation',
+    providers: {
+      search: isLiveSearch ? 'tavily_live' : 'mock_simulation',
+      llm: isLiveLLM ? 'gemini_live' : 'deterministic_simulation',
+    },
     timestamp: new Date().toISOString(),
     timezone: process.env.TIMEZONE || 'Asia/Kolkata',
   });
@@ -84,7 +96,7 @@ app.post('/api/seed', (req, res) => {
       return;
     }
 
-    memoryStore.seedChallengeDemoData(sessionId, new Date());
+    memoryStore.seedChallengeDemoData(sessionId, new Date(), process.env.TIMEZONE || 'Asia/Kolkata');
     res.json({
       success: true,
       sessionId,

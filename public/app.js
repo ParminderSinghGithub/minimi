@@ -12,6 +12,25 @@ const welcomeCard = document.getElementById('welcome-card');
 
 // Load history on initial startup
 loadHistory();
+updateStatusPill();
+
+async function updateStatusPill() {
+  try {
+    const res = await fetch('/api/health');
+    const data = await res.json();
+    const pill = document.querySelector('.status-pill');
+    if (pill) {
+      if (data.mode === 'live') {
+        pill.innerHTML = '<span class="status-dot"></span> Live Search Active';
+        pill.style.borderColor = 'rgba(34, 197, 94, 0.4)';
+      } else {
+        pill.innerHTML = '<span class="status-dot" style="background: #fbbf24; box-shadow: 0 0 8px rgba(251, 191, 36, 0.5);"></span> Demo Simulation Mode';
+        pill.style.borderColor = 'rgba(251, 191, 36, 0.4)';
+        pill.style.color = '#fbbf24';
+      }
+    }
+  } catch {}
+}
 
 // Event Listeners
 chatForm.addEventListener('submit', async (e) => {
@@ -166,9 +185,22 @@ function renderMessage(role, content, metadata, timestamp) {
       ? 'Verified Updates Found'
       : delta.status === 'CONFIRMED_UNCHANGED'
       ? 'Confirmed Unchanged'
+      : delta.status === 'DEMO_SIMULATION'
+      ? 'Demo Simulation (Offline Mock)'
       : 'Inconclusive Evidence';
 
+    const isDemo = delta.status === 'DEMO_SIMULATION' || delta.isMock;
+    const demoBannerHtml = isDemo
+      ? `<div style="font-size: 11px; background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3); border-radius: 4px; padding: 4px 8px; margin-bottom: 8px; font-weight: 500;">🧪 Offline Demo Simulation — Not live web evidence</div>`
+      : '';
+
+    const coverageBannerHtml = metadata && metadata.coverage && !metadata.coverage.isComplete
+      ? `<div style="font-size: 11px; background: rgba(99, 102, 241, 0.15); color: #a5b4fc; border: 1px solid rgba(99, 102, 241, 0.3); border-radius: 4px; padding: 4px 8px; margin-bottom: 8px;">⚠️ ${escapeHtml(metadata.coverage.note)}</div>`
+      : '';
+
     deltaCard.innerHTML = `
+      ${demoBannerHtml}
+      ${coverageBannerHtml}
       <div class="delta-header">
         <div class="delta-title">
           <span>⚖️ Temporal Fact-Check:</span>

@@ -8,6 +8,7 @@ import type {
   MemoryRetrievalFilter,
   MemoryRetrievalResult,
 } from '../types/index.js';
+import { getZonedDateParts, getTimezoneOffsetMinutes } from './temporal.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -134,7 +135,7 @@ export class MemoryStore {
     const metadataStr = message.metadata ? JSON.stringify(message.metadata) : null;
 
     const stmt = this.db.prepare(
-      'INSERT INTO messages (id, session_id, role, content, created_at, metadata) VALUES (?, ?, ?, ?, ?, ?)'
+      'INSERT OR REPLACE INTO messages (id, session_id, role, content, created_at, metadata) VALUES (?, ?, ?, ?, ?, ?)'
     );
     stmt.run([
       message.id,
@@ -145,6 +146,11 @@ export class MemoryStore {
       metadataStr,
     ]);
     stmt.free();
+
+    // Clean up existing FTS entry if message ID already existed
+    const delFts = this.db.prepare('DELETE FROM messages_fts WHERE message_id = ?');
+    delFts.run([message.id]);
+    delFts.free();
 
     // Insert into FTS index
     const ftsStmt = this.db.prepare(
@@ -299,7 +305,7 @@ export class MemoryStore {
 
     // If temporal filter was applied but yielded no messages with keywords,
     // fallback to all messages from that temporal window for this session so the agent knows what occurred
-    if (messages.length === 0 && filter.temporal && ftsMessageIds && ftsMessageIds.size > 0) {
+    if (messages.length === 0 && filter.temporal) {
       let fallbackQuery =
         'SELECT m.id, m.session_id, m.role, m.content, m.created_at, m.metadata FROM messages m WHERE m.created_at >= ? AND m.created_at <= ?';
       const fallbackParams: (string | number)[] = [filter.temporal.startDate, filter.temporal.endDate];
@@ -310,6 +316,9 @@ export class MemoryStore {
       }
 
       fallbackQuery += ' ORDER BY m.created_at ASC';
+      if (filter.limit) {
+        fallbackQuery += ` LIMIT ${filter.limit}`;
+      }
 
       const fallbackStmt = this.db.prepare(fallbackQuery);
       fallbackStmt.bind(fallbackParams);
@@ -357,19 +366,40 @@ export class MemoryStore {
   }
 
   /**
-   * Seeds demo data corresponding to the 3 challenge dataset examples with realistic timestamps
+   * Seeds demo data corresponding to the 3 challenge dataset examples with realistic timestamps.
+   * Fully idempotent: cleans up prior demo messages for the session and respects configured TIMEZONE.
    */
-  seedChallengeDemoData(sessionId: string, referenceDate: Date = new Date()): void {
-    const anchorYear = referenceDate.getFullYear();
-    const anchorMonth = referenceDate.getMonth();
-    const anchorDay = referenceDate.getDate();
-    const anchorDow = referenceDate.getDay();
+  seedChallengeDemoData(
+    sessionId: string,
+    referenceDate: Date = new Date(),
+    timezone: string = process.env.TIMEZONE || 'Asia/Kolkata'
+  ): void {
+    if (!this.db) throw new Error('Database not initialized');
+
+    // Ensure session exists
+    if (!this.getSession(sessionId)) {
+      this.createSession(sessionId, 'Challenge Demo Session');
+    }
+
+    // Clean up prior demo messages for this session to ensure idempotency
+    const delMsg = this.db.prepare("DELETE FROM messages WHERE session_id = ? AND id LIKE 'demo-%'");
+    delMsg.run([sessionId]);
+    delMsg.free();
+
+    const delFts = this.db.prepare("DELETE FROM messages_fts WHERE session_id = ? AND message_id LIKE 'demo-%'");
+    delFts.run([sessionId]);
+    delFts.free();
+
+    // Use zoned date components rather than host machine timezone
+    const { year, month, day, dayOfWeek } = getZonedDateParts(referenceDate, timezone);
+    const offsetMinutes = getTimezoneOffsetMinutes(referenceDate, timezone);
 
     // 1. "On Monday we shortlisted 5 CRM tools for a 20-person sales team."
-    // Calculate Monday relative to anchor
-    const daysSinceMonday = (anchorDow - 1 + 7) % 7 || 7;
-    const mondayDate = new Date(referenceDate.getTime() - daysSinceMonday * 86400000);
-    mondayDate.setHours(10, 30, 0, 0);
+    // Calculate Monday relative to anchor in target timezone
+    const daysSinceMonday = (dayOfWeek - 1 + 7) % 7 || 7;
+    const mondayUtcMiddayMs =
+      Date.UTC(year, month, day, 10, 30, 0) - daysSinceMonday * 86400000 - offsetMinutes * 60000;
+    const mondayDate = new Date(mondayUtcMiddayMs);
 
     this.addMessage({
       id: `demo-crm-user-${sessionId}`,
@@ -395,12 +425,13 @@ export class MemoryStore {
     });
 
     // 2. "What did I ask you on 3 November? Is your answer still correct today?"
-    // 3 November of current anchor year (or last year if anchor is before Nov 3)
-    let nov3Year = anchorYear;
-    if (anchorMonth < 10 || (anchorMonth === 10 && anchorDay < 3)) {
-      nov3Year = anchorYear - 1;
+    // 3 November of current anchor year (or last year if anchor is before Nov 3) in target timezone
+    let nov3Year = year;
+    if (month < 10 || (month === 10 && day < 3)) {
+      nov3Year = year - 1;
     }
-    const nov3Date = new Date(Date.UTC(nov3Year, 10, 3, 14, 15, 0));
+    const nov3UtcMs = Date.UTC(nov3Year, 10, 3, 14, 15, 0) - offsetMinutes * 60000;
+    const nov3Date = new Date(nov3UtcMs);
 
     this.addMessage({
       id: `demo-nov3-user-${sessionId}`,
@@ -420,10 +451,11 @@ export class MemoryStore {
     });
 
     // 3. "Last Tuesday I asked you about Postgres hosting. Has any pricing changed since then?"
-    // Calculate last Tuesday relative to anchor
-    const daysSinceLastTuesday = (anchorDow - 2 + 7) % 7 || 7;
-    const lastTuesdayDate = new Date(referenceDate.getTime() - daysSinceLastTuesday * 86400000);
-    lastTuesdayDate.setHours(16, 0, 0, 0);
+    // Calculate last Tuesday relative to anchor in target timezone
+    const daysSinceLastTuesday = (dayOfWeek - 2 + 7) % 7 || 7;
+    const lastTuesdayUtcMs =
+      Date.UTC(year, month, day, 16, 0, 0) - daysSinceLastTuesday * 86400000 - offsetMinutes * 60000;
+    const lastTuesdayDate = new Date(lastTuesdayUtcMs);
 
     this.addMessage({
       id: `demo-tues-user-${sessionId}`,

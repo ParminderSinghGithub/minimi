@@ -67,11 +67,11 @@ In the web UI, you can test the three challenge dataset examples with one click:
 
 ## 🏗️ Architecture & Key Highlights
 
-- **Temporal Grounding**: Resolves relative dates (*"last Tuesday"*, *"on Monday"*, *"yesterday"*) and calendar dates (*"3 November"*) to exact ISO date boundaries against the current reference timestamp and timezone.
-- **SQLite Memory Store (FTS4)**: Combines chronological filtering with sub-millisecond full-text search. No vector database needed—deterministic date filtering prevents temporal hallucinations.
-- **Multi-Target Search Planning**: Breaks complex prompts into targeted queries specifically targeting official pricing pages (`pricing`) and changelogs (`changelog`).
-- **Strict Evidence Handling**: Evaluates claims into `VERIFIED_CHANGE`, `CONFIRMED_UNCHANGED`, or `INCONCLUSIVE_NO_EVIDENCE`. Absence of search results is **never** treated as proof that nothing changed.
-- **Cross-Platform Zero-Compilers Guarantee**: Built with `sql.js` (WebAssembly SQLite) so `npm install` runs smoothly on any machine without native C++ build tools.
+- **Temporal Grounding**: Resolves relative dates (*"last Tuesday"*, *"on Monday"*, *"yesterday"*, *"last week"*) and calendar dates (*"3 November"*) to exact ISO date boundaries against the current reference timestamp and timezone.
+- **SQLite Memory Store (FTS4)**: Combines chronological filtering with sub-millisecond full-text search. Exact-date retrieval falls back cleanly to date window boundaries even when keyword search returns zero matches, while strictly maintaining session isolation.
+- **Fair Search Planning & Budget Disclosure**: Breaks complex prompts into round-robin queries across all shortlisted entities and intents. Discloses search budget limits and unsearched vendors explicitly rather than claiming false completeness.
+- **Strict Evidence Integrity**: Evaluates claims into `VERIFIED_CHANGE`, `CONFIRMED_UNCHANGED`, `INCONCLUSIVE_NO_EVIDENCE`, or `DEMO_SIMULATION`. Current prices alone never prove interval constancy without dated confirmation. Mock fixtures are clearly segregated from live verification.
+- **Cross-Platform Zero-Compilers Guarantee**: Built with `sql.js` (WebAssembly SQLite) so `npm install` runs smoothly on any machine without native C++ build tools. Fully idempotent demo seeding respects configured IANA timezones.
 
 ---
 

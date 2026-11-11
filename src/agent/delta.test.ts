@@ -23,15 +23,17 @@ describe('Delta Evaluator', () => {
     },
   ];
 
-  it('should return CONFIRMED_UNCHANGED when current search confirms historical pricing without changelog changes', () => {
+  it('should return CONFIRMED_UNCHANGED when live search actively confirms historical pricing with interval-spanning dated evidence', () => {
     const searchResults: SearchResultItem[] = [
       {
         id: 's-1',
         title: 'Supabase Pricing',
         url: 'https://supabase.com/pricing',
         snippet: 'Pro plan starts at $25/month with 8GB database space included.',
+        publishedDate: '2026-11-05',
         category: 'pricing',
         retrievedAt: new Date().toISOString(),
+        isMock: false,
       },
     ];
 
@@ -41,6 +43,53 @@ describe('Delta Evaluator', () => {
         title: 'Supabase Pricing',
         url: 'https://supabase.com/pricing',
         snippet: 'Pro plan starts at $25/month with 8GB database space included.',
+        publishedDate: '2026-11-05',
+        isMock: false,
+      },
+    ];
+
+    const delta = evaluateDelta({
+      userQuery: 'Is your answer still correct today?',
+      historicalMessages,
+      searchResults,
+      citations,
+      temporal: {
+        expression: '3 November',
+        startDate: '2026-11-03T00:00:00.000Z',
+        endDate: '2026-11-03T23:59:59.999Z',
+        isRange: false,
+        confidence: 0.95,
+        referenceTimestamp: '2026-11-11T12:00:00.000Z',
+        timezone: 'UTC',
+      },
+    });
+
+    expect(delta).toBeDefined();
+    expect(delta?.status).toBe('CONFIRMED_UNCHANGED');
+    expect(delta?.explanation).toContain('$25/month');
+  });
+
+  it('should return INCONCLUSIVE_NO_EVIDENCE when official domain has matching price but lacks interval-spanning dated proof', () => {
+    const searchResults: SearchResultItem[] = [
+      {
+        id: 's-undated-official',
+        title: 'Supabase Pricing Page',
+        url: 'https://supabase.com/pricing',
+        snippet: 'Pro plan starts at $25/month.',
+        category: 'pricing',
+        retrievedAt: new Date().toISOString(),
+        isMock: false,
+        // No publishedDate provided
+      },
+    ];
+
+    const citations: Citation[] = [
+      {
+        id: 1,
+        title: 'Supabase Pricing Page',
+        url: 'https://supabase.com/pricing',
+        snippet: 'Pro plan starts at $25/month.',
+        isMock: false,
       },
     ];
 
@@ -52,8 +101,45 @@ describe('Delta Evaluator', () => {
     });
 
     expect(delta).toBeDefined();
-    expect(delta?.status).toBe('CONFIRMED_UNCHANGED');
-    expect(delta?.explanation).toContain('$25/month');
+    expect(delta?.status).toBe('INCONCLUSIVE_NO_EVIDENCE');
+    expect(delta?.explanation).toContain('current price alone cannot establish');
+  });
+
+  it('should return DEMO_SIMULATION when search results are from mock/simulated fixtures', () => {
+    const searchResults: SearchResultItem[] = [
+      {
+        id: 'mock-1',
+        title: 'Supabase Pricing Simulation',
+        url: 'https://supabase.com/pricing',
+        snippet: 'Pro plan starts at $25/month.',
+        publishedDate: '2026-11-05',
+        category: 'pricing',
+        retrievedAt: new Date().toISOString(),
+        isMock: true,
+      },
+    ];
+
+    const citations: Citation[] = [
+      {
+        id: 1,
+        title: 'Supabase Pricing Simulation',
+        url: 'https://supabase.com/pricing',
+        snippet: 'Pro plan starts at $25/month.',
+        isMock: true,
+      },
+    ];
+
+    const delta = evaluateDelta({
+      userQuery: 'Is your answer still correct today?',
+      historicalMessages,
+      searchResults,
+      citations,
+    });
+
+    expect(delta).toBeDefined();
+    expect(delta?.status).toBe('DEMO_SIMULATION');
+    expect(delta?.isMock).toBe(true);
+    expect(delta?.explanation).toContain('Demo Simulation Active');
   });
 
   it('should return INCONCLUSIVE_NO_EVIDENCE when price matches but lacks dated confirmation and official domain', () => {
@@ -87,7 +173,7 @@ describe('Delta Evaluator', () => {
 
     expect(delta).toBeDefined();
     expect(delta?.status).toBe('INCONCLUSIVE_NO_EVIDENCE');
-    expect(delta?.explanation).toContain('lack verified publication timestamps');
+    expect(delta?.explanation).toContain('lack interval-spanning dated confirmation');
   });
 
   it('should return VERIFIED_CHANGE when pricing or feature updates are detected', () => {

@@ -181,6 +181,61 @@ describe('Web Search Tool & Search Planner', () => {
     expect(citations[0].title).toContain('[Demo Simulation]');
   });
 
+  it('should fairly allocate queries across all 5 shortlisted CRM vendors under a 5-query budget', () => {
+    const memoryMessages = [
+      {
+        id: 'crm-prev',
+        sessionId: 'sess-crm',
+        role: 'assistant' as const,
+        content:
+          '1. HubSpot Sales Hub Pro\n2. Salesforce Sales Cloud\n3. Pipedrive Professional\n4. Zoho CRM Enterprise\n5. Close CRM Growth',
+        createdAt: '2026-11-09T10:30:00.000Z',
+      },
+    ];
+
+    const plans = planSearchQueries(
+      'On Monday we shortlisted 5 CRM tools for a 20-person sales team. Has any of them changed pricing or shipped something big since?',
+      memoryMessages,
+      undefined,
+      { maxQueries: 5 }
+    );
+
+    expect(plans).toHaveLength(5);
+    const targetEntities = plans.map(p => p.targetEntity?.toLowerCase());
+    expect(targetEntities).toContain('hubspot');
+    expect(targetEntities).toContain('salesforce');
+    expect(targetEntities).toContain('pipedrive');
+    expect(targetEntities).toContain('zoho');
+    expect(targetEntities.some(e => e?.includes('close'))).toBe(true);
+    expect(plans.isComplete).toBe(true);
+    expect(plans.unsearchedEntities).toHaveLength(0);
+  });
+
+  it('should detect and disclose partial coverage when requested entities exceed the query budget', () => {
+    const memoryMessages = [
+      {
+        id: 'tools-prev',
+        sessionId: 'sess-tools',
+        role: 'assistant' as const,
+        content: 'HubSpot, Salesforce, Pipedrive, Zoho, Close, Linear, Notion',
+        createdAt: '2026-11-09T10:30:00.000Z',
+      },
+    ];
+
+    const plans = planSearchQueries(
+      'Compare pricing and updates for HubSpot, Salesforce, Pipedrive, Zoho, Close, Linear',
+      memoryMessages,
+      undefined,
+      { maxQueries: 4 }
+    );
+
+    expect(plans).toHaveLength(4);
+    expect(plans.isComplete).toBe(false);
+    expect(plans.unsearchedEntities.length).toBeGreaterThan(0);
+    expect(plans.coverageNote).toContain('Search budget reached');
+    expect(plans.coverageNote).toContain('Not checked within budget');
+  });
+
   it('should not emit example.com as authentic web evidence for unscripted mock queries', async () => {
     const provider = new MockSearchProvider();
     const results = await provider.search('unknown esoteric query xyz 123');

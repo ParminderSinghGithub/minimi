@@ -349,5 +349,65 @@ describe('MemoryStore (SQLite + FTS4 + Temporal Filter)', () => {
     expect(resultB.messages).toHaveLength(0);
     expect(resultB.hasExactMatch).toBe(false);
   });
+
+  it('should retrieve exact-date messages even when keywords return zero FTS matches', () => {
+    const sessId = 'sess-exact-date';
+    memory.createSession(sessId);
+
+    memory.addMessage({
+      id: 'nov3-msg',
+      sessionId: sessId,
+      role: 'user',
+      content: 'What is the pricing for Supabase Pro Postgres hosting?',
+      createdAt: '2026-11-03T14:15:00.000Z',
+    });
+
+    // Query with completely unrelated keyword "unrelated_random_topic" on Nov 3
+    const result = memory.searchMemory({
+      sessionId: sessId,
+      keywords: ['unrelated_random_topic'],
+      temporal: {
+        expression: '3 November',
+        startDate: '2026-11-03T00:00:00.000Z',
+        endDate: '2026-11-03T23:59:59.999Z',
+        isRange: false,
+        confidence: 0.95,
+        referenceTimestamp: anchor.toISOString(),
+        timezone: 'UTC',
+      },
+    });
+
+    expect(result.messages).toHaveLength(1);
+    expect(result.messages[0].id).toBe('nov3-msg');
+    expect(result.hasExactMatch).toBe(true);
+  });
+
+  it('should make seedChallengeDemoData idempotent without crashing on duplicate calls', () => {
+    const sessId = 'sess-idempotent-seed';
+
+    // Call seed first time
+    expect(() => memory.seedChallengeDemoData(sessId, anchor)).not.toThrow();
+    const countFirst = memory.getRecentMessages(sessId, 50).length;
+    expect(countFirst).toBe(6);
+
+    // Call seed second time on the same session
+    expect(() => memory.seedChallengeDemoData(sessId, anchor)).not.toThrow();
+    const countSecond = memory.getRecentMessages(sessId, 50).length;
+    // Must remain 6 messages (no duplicate primary key crash, no duplicated entries)
+    expect(countSecond).toBe(6);
+  });
+
+  it('should seed dates consistently in the configured IANA timezone', () => {
+    const sessId = 'sess-tz-seed';
+    memory.seedChallengeDemoData(sessId, anchor, 'Asia/Kolkata');
+
+    const messages = memory.getRecentMessages(sessId, 50);
+    expect(messages.length).toBe(6);
+
+    const crmUser = messages.find(m => m.id.startsWith('demo-crm-user'));
+    expect(crmUser).toBeDefined();
+    // Monday date in Asia/Kolkata (+05:30) converted to UTC
+    expect(crmUser?.createdAt).toMatch(/2026-11-09T05:00:00/);
+  });
 });
 

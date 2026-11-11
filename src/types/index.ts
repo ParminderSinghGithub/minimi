@@ -75,7 +75,8 @@ export interface SearchResultItem {
 export type EvidenceStatus =
   | 'VERIFIED_CHANGE'
   | 'CONFIRMED_UNCHANGED'
-  | 'INCONCLUSIVE_NO_EVIDENCE';
+  | 'INCONCLUSIVE_NO_EVIDENCE'
+  | 'DEMO_SIMULATION';
 
 export interface Citation {
   id: number;
@@ -100,6 +101,14 @@ export interface DeltaComparison {
   status: EvidenceStatus;
   explanation: string;
   citations: Citation[];
+  isMock?: boolean;
+}
+
+export interface SearchCoverage {
+  isComplete: boolean;
+  searchedEntities: string[];
+  unsearchedEntities: string[];
+  note?: string;
 }
 
 export interface AgentResponsePayload {
@@ -113,6 +122,8 @@ export interface AgentResponsePayload {
     detectedExpressions: string[];
   };
   searchesExecuted: SearchQueryPlan[];
+  coverage?: SearchCoverage;
+  failedSearches?: Array<{ query: string; error: string }>;
   memoryContextUsed: {
     messageCount: number;
     matchedDates: string[];
