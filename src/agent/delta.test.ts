@@ -182,4 +182,25 @@ describe('ChatAgent Orchestrator Integration', () => {
     // Verifies it did NOT hallucinate a fake conversation
     expect(res.content).not.toContain('You asked: "');
   });
+
+  it('should isolate fresh search queries without polluting from unrelated prior memory', async () => {
+    const sessionId = 'seeded-session-for-fresh-query';
+    memoryStore.seedChallengeDemoData(sessionId, anchor); // Contains CRM and Postgres messages
+
+    // Now user asks a fresh question about Linear app pricing
+    const res = await agent.handleUserMessage(
+      sessionId,
+      'What is the current pricing for Linear app standard and plus plans?',
+      anchor
+    );
+
+    // Should NOT search for Postgres or Supabase
+    const searchedTerms = res.searchesExecuted.map(s => s.query.toLowerCase()).join(' ');
+    expect(searchedTerms).toContain('linear');
+    expect(searchedTerms).not.toContain('postgres');
+    expect(searchedTerms).not.toContain('supabase');
+
+    // Should NOT create a phantom delta comparison against Postgres
+    expect(res.delta).toBeUndefined();
+  });
 });

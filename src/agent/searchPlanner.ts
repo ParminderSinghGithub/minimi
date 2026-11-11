@@ -34,37 +34,55 @@ const KNOWN_ENTITIES = [
   'aurora serverless',
   'postgres',
   'postgresql',
+  'linear',
+  'notion',
+  'slack',
+  'stripe',
+  'figma',
+  'jira',
+  'datadog',
 ];
 
 /**
- * Extracts entities mentioned in past messages or user query
+ * Extracts entities mentioned in past messages or user query.
+ * Prioritizes entities in user query; falls back to memory only if user query is referencing past context.
  */
 export function extractTargetEntities(userQuery: string, memoryMessages: Message[] = []): string[] {
-  const combinedText = [
-    userQuery,
-    ...memoryMessages.map(m => m.content),
-  ].join(' ').toLowerCase();
+  const userMatched = new Set<string>();
 
-  const matched = new Set<string>();
-
+  // 1. First check if user query explicitly mentions known entities
   for (const entity of KNOWN_ENTITIES) {
     const regex = new RegExp(`\\b${entity}\\b`, 'i');
-    if (regex.test(combinedText)) {
-      matched.add(entity);
+    if (regex.test(userQuery)) {
+      userMatched.add(entity);
     }
   }
 
-  // Also check for capitalized noun phrases if no known entities match
-  if (matched.size === 0) {
-    const capitalizedTerms = userQuery.match(/\b[A-Z][a-zA-Z0-9_-]+\b/g) || [];
-    for (const term of capitalizedTerms) {
-      if (!['What', 'When', 'Where', 'Which', 'Who', 'How', 'Is', 'Are', 'Has', 'Did', 'On', 'Last', 'This'].includes(term)) {
-        matched.add(term.toLowerCase());
+  // 2. Also check for capitalized noun phrases in user query
+  const capitalizedTerms = userQuery.match(/\b[A-Z][a-zA-Z0-9_-]+\b/g) || [];
+  for (const term of capitalizedTerms) {
+    if (!['What', 'When', 'Where', 'Which', 'Who', 'How', 'Is', 'Are', 'Has', 'Did', 'On', 'Last', 'This', 'Can', 'Could', 'Show', 'Tell'].includes(term)) {
+      userMatched.add(term.toLowerCase());
+    }
+  }
+
+  // If user query specifically mentions entities, prioritize them exclusively
+  if (userMatched.size > 0) {
+    return Array.from(userMatched);
+  }
+
+  // 3. Fallback: If user query references past context (e.g. "Has any of them changed?"), pull entities from memory
+  const memoryMatched = new Set<string>();
+  for (const msg of memoryMessages) {
+    for (const entity of KNOWN_ENTITIES) {
+      const regex = new RegExp(`\\b${entity}\\b`, 'i');
+      if (regex.test(msg.content)) {
+        memoryMatched.add(entity);
       }
     }
   }
 
-  return Array.from(matched);
+  return Array.from(memoryMatched);
 }
 
 /**

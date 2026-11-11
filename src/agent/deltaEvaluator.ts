@@ -33,6 +33,16 @@ export function evaluateDelta(input: DeltaEvaluationInput): DeltaComparison | un
     return undefined;
   }
 
+  // Only evaluate delta if the user's query asks about historical continuity or changes over time
+  const isDeltaIntent =
+    /changed|change|changes|pricing changed|shipped|still correct|still valid|since then|since|updates? since|differ/i.test(
+      userQuery
+    ) || Boolean(temporal);
+
+  if (!isDeltaIntent) {
+    return undefined;
+  }
+
   // Find the primary assistant message containing historical factual claims
   const historicalAssistantMsg = [...historicalMessages]
     .reverse()

@@ -260,8 +260,8 @@ export class MemoryStore {
         metadata: string | null;
       };
 
-      // If keyword filter was specified, prioritize messages matching keywords
-      if (ftsMessageIds && ftsMessageIds.size > 0) {
+      // If keyword filter was specified, only include messages matching keywords
+      if (ftsMessageIds !== null) {
         if (ftsMessageIds.has(row.id)) {
           messages.push({
             id: row.id,

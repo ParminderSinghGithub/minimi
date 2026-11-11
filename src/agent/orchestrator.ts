@@ -248,26 +248,28 @@ STRICT RULES:
 
     const sections: string[] = [];
 
-    // 1. Historical grounding section
-    if (memoryMessages.length > 0) {
-      const lastAssistant = [...memoryMessages].reverse().find(m => m.role === 'assistant');
-      const lastUser = [...memoryMessages].reverse().find(m => m.role === 'user');
+    // 1. Historical grounding section (only show if temporal reference or delta was requested)
+    if (delta || params.temporalResult.temporal) {
+      if (memoryMessages.length > 0) {
+        const lastAssistant = [...memoryMessages].reverse().find(m => m.role === 'assistant');
+        const lastUser = [...memoryMessages].reverse().find(m => m.role === 'user');
 
-      if (lastUser && lastAssistant) {
-        const histDate = new Date(lastUser.createdAt).toLocaleDateString('en-US', {
-          weekday: 'short',
-          month: 'short',
-          day: 'numeric',
-          year: 'numeric',
-        });
-        sections.push(
-          `**Past Context (${histDate}):**\n` +
-          `• You asked: "${lastUser.content}"\n` +
-          `• Previous Answer: ${lastAssistant.content}`
-        );
+        if (lastUser && lastAssistant) {
+          const histDate = new Date(lastUser.createdAt).toLocaleDateString('en-US', {
+            weekday: 'short',
+            month: 'short',
+            day: 'numeric',
+            year: 'numeric',
+          });
+          sections.push(
+            `**Past Context (${histDate}):**\n` +
+            `• You asked: "${lastUser.content}"\n` +
+            `• Previous Answer: ${lastAssistant.content}`
+          );
+        }
+      } else {
+        sections.push(`*Note on History:* ${memoryExplanation}`);
       }
-    } else {
-      sections.push(`*Note on History:* ${memoryExplanation}`);
     }
 
     // 2. Delta & Current Reality
