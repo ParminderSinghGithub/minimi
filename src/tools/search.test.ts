@@ -41,6 +41,24 @@ describe('Web Search Tool & Search Planner', () => {
     expect(entities).toContain('zoho');
   });
 
+  it('should extract unfamiliar multi-word tool names and app phrases', () => {
+    const entities = extractTargetEntities('What is the current pricing for Linear app standard and plus plans?');
+    expect(entities).toContain('linear');
+
+    const quotedEntities = extractTargetEntities('Can you compare "Raycast Pro" with Alfred?');
+    expect(quotedEntities).toContain('raycast pro');
+  });
+
+  it('should allocate intent-specific queries targeting official plans and changelogs', () => {
+    const pricingPlans = planSearchQueries('What is the pricing for ClickUp?');
+    expect(pricingPlans[0].category).toBe('pricing');
+    expect(pricingPlans[0].query).toContain('pricing');
+
+    const changelogPlans = planSearchQueries('What new features shipped for Supabase recently?');
+    expect(changelogPlans[0].category).toBe('changelog');
+    expect(changelogPlans[0].query).toContain('changelog');
+  });
+
   it('should plan multiple targeted queries prioritizing pricing and changelogs', () => {
     const plans = planSearchQueries(
       'Has any of them changed pricing or shipped something big since?',

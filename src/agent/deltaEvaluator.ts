@@ -20,11 +20,12 @@ export interface DeltaEvaluationInput {
  */
 function extractPricingFigures(text: string): string[] {
   const matches = text.match(/\$\d+(?:\.\d{2})?(?:\/(?:month|mo|seat|user|year|yr))?/gi) || [];
-  return Array.from(new Set(matches.map(m => m.toLowerCase().replace('/mo', '/month'))));
+  return Array.from(new Set(matches.map(m => m.toLowerCase().replace(/\/mo\b/gi, '/month'))));
 }
 
 /**
- * Evaluates whether historical claims from conversation memory match current web evidence
+ * Evaluates whether historical claims from conversation memory match current web evidence.
+ * Requires dated evidence or official domain confirmation before declaring CONFIRMED_UNCHANGED.
  */
 export function evaluateDelta(input: DeltaEvaluationInput): DeltaComparison | undefined {
   const { userQuery, historicalMessages, searchResults, citations, temporal } = input;
@@ -82,23 +83,54 @@ export function evaluateDelta(input: DeltaEvaluationInput): DeltaComparison | un
       const novelPrices = currentPricing.filter(cp => !historicalPricing.includes(cp));
 
       // Check if text explicitly says "now $X", "price increase", "new pricing"
-      const explicitPriceChangeMention = /price increase|pricing increase|increased to|now \$|raised pricing|changed pricing/i.test(
-        searchEvidenceText
-      );
+      const explicitPriceChangeMention =
+        /price increase|pricing increase|increased to|now \$|raised pricing|changed pricing/i.test(
+          searchEvidenceText
+        );
 
       if (explicitPriceChangeMention || (novelPrices.length > 0 && confirmedPrices.length === 0)) {
         status = 'VERIFIED_CHANGE';
         reasoning = `Evidence indicates pricing changes: detected new or altered pricing (${novelPrices.join(', ')}).`;
         currentClaimSummary = `Current pricing references observed in search: ${currentPricing.join(', ')}.`;
       } else if (confirmedPrices.length > 0) {
+        // Enforce dated or official evidence requirement for CONFIRMED_UNCHANGED
+        const hasDatedRecentEvidence = searchResults.some(r => {
+          if (!r.publishedDate) return false;
+          const pubMs = Date.parse(r.publishedDate);
+          return !isNaN(pubMs);
+        });
+
+        const hasOfficialDomain = searchResults.some(r => {
+          try {
+            const host = new URL(r.url).hostname.toLowerCase();
+            return (
+              host.includes('supabase.com') ||
+              host.includes('neon.tech') ||
+              host.includes('hubspot.com') ||
+              host.includes('salesforce.com') ||
+              host.includes('pipedrive.com') ||
+              host.includes('zoho.com') ||
+              host.includes('close.com') ||
+              host.includes('pricing')
+            );
+          } catch {
+            return false;
+          }
+        });
+
         if (hasChangelogEvidence) {
           status = 'VERIFIED_CHANGE';
           reasoning = `Base pricing (${confirmedPrices.join(', ')}) is verified unchanged, but new product features/updates have shipped recently according to release notes.`;
           currentClaimSummary = `Pricing confirmed at ${confirmedPrices.join(', ')}, with new product updates noted in changelogs.`;
-        } else {
+        } else if (hasDatedRecentEvidence || hasOfficialDomain) {
           status = 'CONFIRMED_UNCHANGED';
-          reasoning = `Official pricing sources actively confirm historical pricing (${confirmedPrices.join(', ')}). No conflicting changes detected.`;
+          reasoning = `Dated official pricing sources actively confirm historical pricing (${confirmedPrices.join(', ')}). No conflicting changes detected.`;
           currentClaimSummary = `Verified active pricing matches historical record: ${confirmedPrices.join(', ')}.`;
+        } else {
+          // A matching price string in undated third-party snippets is NOT proof of non-change
+          status = 'INCONCLUSIVE_NO_EVIDENCE';
+          reasoning = `Matching price figure (${confirmedPrices.join(', ')}) was noted, but retrieved search snippets lack verified publication timestamps or official domain confirmation. A matching price string alone cannot be treated as proof that pricing remained unchanged over time.`;
+          currentClaimSummary = `Inconclusive: Observed price (${confirmedPrices.join(', ')}), but lacks verified dated confirmation.`;
         }
       } else {
         status = 'INCONCLUSIVE_NO_EVIDENCE';
@@ -119,7 +151,9 @@ export function evaluateDelta(input: DeltaEvaluationInput): DeltaComparison | un
   }
 
   // Determine entity or topic
-  const entityMatch = historicalText.match(/\b(HubSpot|Salesforce|Pipedrive|Zoho|Close|Supabase|Neon|Postgres)\b/i);
+  const entityMatch = historicalText.match(
+    /\b(HubSpot|Salesforce|Pipedrive|Zoho|Close|Supabase|Neon|Postgres)\b/i
+  );
   const entityOrTopic = entityMatch ? entityMatch[0] : 'Historical Topic';
 
   return {

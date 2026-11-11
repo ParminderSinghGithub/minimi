@@ -56,6 +56,40 @@ describe('Delta Evaluator', () => {
     expect(delta?.explanation).toContain('$25/month');
   });
 
+  it('should return INCONCLUSIVE_NO_EVIDENCE when price matches but lacks dated confirmation and official domain', () => {
+    const searchResults: SearchResultItem[] = [
+      {
+        id: 's-undated',
+        title: 'Random Tech Blog',
+        url: 'https://random-blog.net/cloud-review',
+        snippet: 'In our review, Supabase Pro starts at $25/month.',
+        category: 'pricing',
+        retrievedAt: new Date().toISOString(),
+        // No publishedDate provided
+      },
+    ];
+
+    const citations: Citation[] = [
+      {
+        id: 1,
+        title: 'Random Tech Blog',
+        url: 'https://random-blog.net/cloud-review',
+        snippet: 'In our review, Supabase Pro starts at $25/month.',
+      },
+    ];
+
+    const delta = evaluateDelta({
+      userQuery: 'Is your answer still correct today?',
+      historicalMessages,
+      searchResults,
+      citations,
+    });
+
+    expect(delta).toBeDefined();
+    expect(delta?.status).toBe('INCONCLUSIVE_NO_EVIDENCE');
+    expect(delta?.explanation).toContain('lack verified publication timestamps');
+  });
+
   it('should return VERIFIED_CHANGE when pricing or feature updates are detected', () => {
     const searchResults: SearchResultItem[] = [
       {
