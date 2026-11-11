@@ -221,6 +221,225 @@ describe('Delta Evaluator', () => {
     expect(delta?.status).toBe('INCONCLUSIVE_NO_EVIDENCE');
     expect(delta?.explanation).toContain('Absence of search results cannot be treated as confirmation');
   });
+
+  describe('Changelog Temporal Evidence Verification', () => {
+    const nov3Temporal = {
+      expression: '3 November',
+      startDate: '2026-11-03T00:00:00.000Z',
+      endDate: '2026-11-03T23:59:59.999Z',
+      isRange: false,
+      confidence: 0.95,
+      referenceTimestamp: '2026-11-11T12:00:00.000Z',
+      timezone: 'UTC',
+    };
+
+    it('should return VERIFIED_CHANGE when changelog publication date is valid and falls within the requested comparison interval', () => {
+      const searchResults: SearchResultItem[] = [
+        {
+          id: 'cl-valid',
+          title: 'Supabase Changelog - November 2026',
+          url: 'https://supabase.com/changelog/nov-2026',
+          snippet: 'Shipped new branching features and managed Postgres improvements.',
+          publishedDate: '2026-11-06',
+          category: 'changelog',
+          retrievedAt: new Date().toISOString(),
+          isMock: false,
+        },
+      ];
+
+      const citations: Citation[] = [
+        {
+          id: 1,
+          title: 'Supabase Changelog - November 2026',
+          url: 'https://supabase.com/changelog/nov-2026',
+          snippet: 'Shipped new branching features and managed Postgres improvements.',
+          publishedDate: '2026-11-06',
+          isMock: false,
+        },
+      ];
+
+      const delta = evaluateDelta({
+        userQuery: 'What did I ask on 3 November? Has anything shipped since?',
+        historicalMessages,
+        searchResults,
+        citations,
+        temporal: nov3Temporal,
+      });
+
+      expect(delta).toBeDefined();
+      expect(delta?.status).toBe('VERIFIED_CHANGE');
+      expect(delta?.explanation).toMatch(/release notes and changelog/i);
+    });
+
+    it('should return INCONCLUSIVE_NO_EVIDENCE when changelog result has a missing publication date', () => {
+      const searchResults: SearchResultItem[] = [
+        {
+          id: 'cl-no-date',
+          title: 'Supabase Changelog',
+          url: 'https://supabase.com/changelog',
+          snippet: 'Shipped new branching features and managed Postgres improvements.',
+          // No publishedDate
+          category: 'changelog',
+          retrievedAt: new Date().toISOString(),
+          isMock: false,
+        },
+      ];
+
+      const citations: Citation[] = [
+        {
+          id: 1,
+          title: 'Supabase Changelog',
+          url: 'https://supabase.com/changelog',
+          snippet: 'Shipped new branching features and managed Postgres improvements.',
+          isMock: false,
+        },
+      ];
+
+      const delta = evaluateDelta({
+        userQuery: 'What did I ask on 3 November? Has anything shipped since?',
+        historicalMessages,
+        searchResults,
+        citations,
+        temporal: nov3Temporal,
+      });
+
+      expect(delta).toBeDefined();
+      expect(delta?.status).toBe('INCONCLUSIVE_NO_EVIDENCE');
+      expect(delta?.explanation).toContain('Insufficient specific evidence');
+    });
+
+    it('should return INCONCLUSIVE_NO_EVIDENCE when changelog result has an invalid/malformed publication date', () => {
+      const searchResults: SearchResultItem[] = [
+        {
+          id: 'cl-bad-date',
+          title: 'Supabase Changelog',
+          url: 'https://supabase.com/changelog',
+          snippet: 'Shipped new branching features and managed Postgres improvements.',
+          publishedDate: 'not-a-valid-timestamp',
+          category: 'changelog',
+          retrievedAt: new Date().toISOString(),
+          isMock: false,
+        },
+      ];
+
+      const citations: Citation[] = [
+        {
+          id: 1,
+          title: 'Supabase Changelog',
+          url: 'https://supabase.com/changelog',
+          snippet: 'Shipped new branching features and managed Postgres improvements.',
+          publishedDate: 'not-a-valid-timestamp',
+          isMock: false,
+        },
+      ];
+
+      const delta = evaluateDelta({
+        userQuery: 'What did I ask on 3 November? Has anything shipped since?',
+        historicalMessages,
+        searchResults,
+        citations,
+        temporal: nov3Temporal,
+      });
+
+      expect(delta).toBeDefined();
+      expect(delta?.status).toBe('INCONCLUSIVE_NO_EVIDENCE');
+      expect(delta?.explanation).toContain('Insufficient specific evidence');
+    });
+
+    it('should return INCONCLUSIVE_NO_EVIDENCE when changelog result was published outside/prior to requested interval', () => {
+      const searchResults: SearchResultItem[] = [
+        {
+          id: 'cl-old-date',
+          title: 'Supabase Changelog - October 2026',
+          url: 'https://supabase.com/changelog/oct-2026',
+          snippet: 'Shipped new features in mid October.',
+          publishedDate: '2026-10-15', // Before Nov 3 historical baseline
+          category: 'changelog',
+          retrievedAt: new Date().toISOString(),
+          isMock: false,
+        },
+      ];
+
+      const citations: Citation[] = [
+        {
+          id: 1,
+          title: 'Supabase Changelog - October 2026',
+          url: 'https://supabase.com/changelog/oct-2026',
+          snippet: 'Shipped new features in mid October.',
+          publishedDate: '2026-10-15',
+          isMock: false,
+        },
+      ];
+
+      const delta = evaluateDelta({
+        userQuery: 'What did I ask on 3 November? Has anything shipped since?',
+        historicalMessages,
+        searchResults,
+        citations,
+        temporal: nov3Temporal,
+      });
+
+      expect(delta).toBeDefined();
+      expect(delta?.status).toBe('INCONCLUSIVE_NO_EVIDENCE');
+      expect(delta?.explanation).toContain('Insufficient specific evidence');
+    });
+
+    it('should return VERIFIED_CHANGE when multiple results exist and one independently establishes a valid in-range change', () => {
+      const searchResults: SearchResultItem[] = [
+        {
+          id: 'cl-old',
+          title: 'Supabase Changelog - October',
+          url: 'https://supabase.com/changelog/oct',
+          snippet: 'Old release shipped.',
+          publishedDate: '2026-10-01', // Out of range
+          category: 'changelog',
+          retrievedAt: new Date().toISOString(),
+          isMock: false,
+        },
+        {
+          id: 'cl-malformed',
+          title: 'Supabase Update',
+          url: 'https://supabase.com/changelog/bad',
+          snippet: 'Malformed update snippet.',
+          publishedDate: 'malformed-date-string', // Malformed
+          category: 'changelog',
+          retrievedAt: new Date().toISOString(),
+          isMock: false,
+        },
+        {
+          id: 'cl-recent',
+          title: 'Supabase Changelog - November 8',
+          url: 'https://supabase.com/changelog/nov-8',
+          snippet: 'Shipped major release update for Postgres instances.',
+          publishedDate: '2026-11-08', // Valid in-range date (after Nov 3)
+          category: 'changelog',
+          retrievedAt: new Date().toISOString(),
+          isMock: false,
+        },
+      ];
+
+      const citations: Citation[] = searchResults.map((r, i) => ({
+        id: i + 1,
+        title: r.title,
+        url: r.url,
+        snippet: r.snippet,
+        publishedDate: r.publishedDate,
+        isMock: false,
+      }));
+
+      const delta = evaluateDelta({
+        userQuery: 'What did I ask on 3 November? Has anything shipped since?',
+        historicalMessages,
+        searchResults,
+        citations,
+        temporal: nov3Temporal,
+      });
+
+      expect(delta).toBeDefined();
+      expect(delta?.status).toBe('VERIFIED_CHANGE');
+      expect(delta?.explanation).toMatch(/release notes and changelog/i);
+    });
+  });
 });
 
 describe('ChatAgent Orchestrator Integration', () => {

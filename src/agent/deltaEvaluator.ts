@@ -82,16 +82,29 @@ export function evaluateDelta(input: DeltaEvaluationInput): DeltaComparison | un
     currentClaimSummary = 'Current state could not be verified due to lack of web search results.';
   } else {
     // Determine history reference timestamp ms for comparison window
-    const historyStartMs = temporal?.startDate ? Date.parse(temporal.startDate) : Date.parse(historicalAssistantMsg.createdAt);
+    const historyStartMs = temporal?.startDate
+      ? Date.parse(temporal.startDate)
+      : Date.parse(historicalAssistantMsg.createdAt);
 
-    // Check for explicit updates / changelogs supported by dated evidence
-    const hasDatedChangelogEvidence = searchResults.some(r => {
-      const isChangelog = /changelog|release|shipped|introduced|announced|new feature/i.test(r.title + ' ' + r.snippet);
+    // Helper to verify if a search result provides valid, temporally relevant changelog evidence
+    const isTemporallyRelevantChangelog = (r: SearchResultItem): boolean => {
+      const isChangelog = /changelog|release|shipped|introduced|announced|new feature/i.test(
+        r.title + ' ' + r.snippet
+      );
       if (!isChangelog) return false;
-      if (!r.publishedDate) return true;
+      if (!r.publishedDate || typeof r.publishedDate !== 'string') return false;
+
       const pubMs = Date.parse(r.publishedDate);
-      return isNaN(pubMs) || isNaN(historyStartMs) || pubMs >= historyStartMs - 86400000;
-    });
+      if (isNaN(pubMs)) return false;
+
+      // Must be on or after the historical baseline calendar day
+      if (isNaN(historyStartMs)) return false;
+      const historyDayStartMs = new Date(historyStartMs).setUTCHours(0, 0, 0, 0);
+      return pubMs >= historyDayStartMs;
+    };
+
+    // Check for explicit updates / changelogs supported by valid dated evidence
+    const hasDatedChangelogEvidence = searchResults.some(isTemporallyRelevantChangelog);
 
     // Check pricing match or drift
     if (historicalPricing.length > 0 && currentPricing.length > 0) {
