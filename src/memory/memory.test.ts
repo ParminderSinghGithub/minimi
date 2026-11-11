@@ -239,3 +239,4 @@ describe('MemoryStore (SQLite + FTS4 + Temporal Filter)', () => {
     expect(tuesdaySearch.messages.some(m => m.content.includes('Postgres'))).toBe(true);
   });
 });
+

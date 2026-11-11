@@ -274,3 +274,4 @@ export function extractKeywords(text: string): string[] {
     .filter(w => w.length > 2 && !STOPWORDS.has(w));
   return Array.from(new Set(words));
 }
+
