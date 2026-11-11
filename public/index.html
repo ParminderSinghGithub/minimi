@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>minimi • Chat Agent with Web Search & Temporal Memory</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="header-left">
+        <div class="logo-mark">m</div>
+        <div class="logo-title">
+          <h1>minimi</h1>
+          <span class="subtitle">Temporal Memory & Web Search Agent</span>
+        </div>
+      </div>
+      <div class="header-actions">
+        <span class="status-pill"><span class="status-dot"></span> Ready</span>
+        <button id="btn-seed" class="btn btn-secondary" title="Populate realistic past history for the 3 challenge dataset examples">
+          <span class="btn-icon">⚡</span> Seed Challenge History
+        </button>
+        <button id="btn-new" class="btn btn-ghost" title="Start a fresh chat">
+          <span class="btn-icon">↺</span> Reset Chat
+        </button>
+      </div>
+    </header>
+
+    <!-- Challenge Quick Prompts Banner -->
+    <section class="prompt-banner">
+      <div class="prompt-banner-header">
+        <span class="badge">Evaluation Dataset</span>
+        <span>Click any challenge test prompt to run with memory retrieval & web search:</span>
+      </div>
+      <div class="quick-prompts">
+        <button class="quick-prompt-btn" data-prompt="On Monday we shortlisted 5 CRM tools for a 20-person sales team. Has any of them changed pricing or shipped something big since?">
+          <strong>1. CRM Shortlist Delta:</strong> "On Monday we shortlisted 5 CRM tools... Has any changed pricing or shipped big since?"
+        </button>
+        <button class="quick-prompt-btn" data-prompt="What did I ask you on 3 November? Is your answer still correct today?">
+          <strong>2. Temporal Fact-Check:</strong> "What did I ask you on 3 November? Is your answer still correct today?"
+        </button>
+        <button class="quick-prompt-btn" data-prompt="Last Tuesday I asked you about Postgres hosting. Has any pricing changed since then?">
+          <strong>3. Postgres Hosting Delta:</strong> "Last Tuesday I asked you about Postgres hosting. Has any pricing changed since then?"
+        </button>
+      </div>
+    </section>
+
+    <!-- Chat Messages Viewport -->
+    <main class="chat-viewport" id="chat-messages">
+      <div class="welcome-card" id="welcome-card">
+        <h2>Welcome to minimi</h2>
+        <p>I am your temporal-aware chat agent with real-time web search capabilities.</p>
+        <div class="feature-grid">
+          <div class="feature-item">
+            <span class="feature-icon">🕒</span>
+            <div>
+              <strong>Temporal Grounding</strong>
+              <p>Understands relative dates ("Monday", "last Tuesday", "3 Nov") against real chat history.</p>
+            </div>
+          </div>
+          <div class="feature-item">
+            <span class="feature-icon">🔍</span>
+            <div>
+              <strong>Multi-Target Search</strong>
+              <p>Decomposes complex questions into targeted queries prioritizing pricing & release notes.</p>
+            </div>
+          </div>
+          <div class="feature-item">
+            <span class="feature-icon">⚖️</span>
+            <div>
+              <strong>Fact-Drift Verification</strong>
+              <p>Compares past claims vs current reality and verifies whether information changed or remained constant.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <!-- Chat Input Form -->
+    <footer class="chat-input-bar">
+      <form id="chat-form" class="input-form">
+        <textarea
+          id="user-input"
+          class="chat-textarea"
+          placeholder="Ask a question or reference past conversations (e.g. 'On Monday we shortlisted 5 CRM tools...')"
+          rows="1"
+          required
+        ></textarea>
+        <button type="submit" id="btn-send" class="btn btn-primary" title="Send Message">
+          <span>Send</span>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="22" y1="2" x2="11" y2="13"></line>
+            <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+          </svg>
+        </button>
+      </form>
+    </footer>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

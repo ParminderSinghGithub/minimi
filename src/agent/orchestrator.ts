@@ -93,7 +93,9 @@ export class ChatAgent {
           currentDate,
         });
       } catch (err) {
-        console.warn('Gemini synthesis failed, falling back to deterministic synthesizer:', err);
+        if (process.env.NODE_ENV !== 'test') {
+          console.warn('Gemini synthesis failed, falling back to deterministic synthesizer:', err);
+        }
         content = this.deterministicSynthesize({
           userText,
           memoryMessages: memoryResult.messages,
